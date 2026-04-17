@@ -351,9 +351,30 @@ body {
   margin-bottom: 10px;
 }
 
+.vote-flash {
+  font-size: 12px;
+  font-weight: 700;
+  margin: 0 0 10px;
+  line-height: 1.35;
+}
+
+.vote-flash-notice {
+  color: var(--cl-rust-dark);
+}
+
+.vote-flash-done {
+  color: #6f4e3e;
+}
+
 .vote-btns {
   display: flex;
   gap: 8px;
+}
+
+.btn-y:disabled,
+.btn-n:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 
 .btn-y {
@@ -388,6 +409,21 @@ body {
 
 .closed-vote-title {
   margin-bottom: 0;
+}
+
+.closed-vote-result {
+  font-size: 13px;
+  font-weight: 700;
+  margin-top: 8px;
+  line-height: 1.35;
+}
+
+.closed-vote-result-pass {
+  color: var(--cl-teal-dark);
+}
+
+.closed-vote-result-fail {
+  color: var(--cl-rust-dark);
 }
 
 .closed-vote-meta {

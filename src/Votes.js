@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { supabase } from './supabase';
 
 function daysUntilClose(dateStr) {
@@ -31,37 +31,148 @@ function Votes({ buildingId }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [votes, setVotes] = useState([]);
+  const [ownerId, setOwnerId] = useState(null);
+  const [votedVoteIds, setVotedVoteIds] = useState(() => new Set());
+  const [votingId, setVotingId] = useState(null);
+  const [flashByVoteId, setFlashByVoteId] = useState({});
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadVotes = useCallback(async () => {
+    setLoading(true);
+    setError(null);
 
-    async function load() {
-      setLoading(true);
-      setError(null);
-
-      const { data, error: err } = await supabase
-        .from('votes')
-        .select('id, title, yes_count, no_count, total_owners, status, closes_at')
-        .eq('building_id', buildingId);
-
-      if (cancelled) return;
-
-      if (err) {
-        setError(err.message);
-        setVotes([]);
-        setLoading(false);
-        return;
-      }
-
-      setVotes(data || []);
+    const { data: authData, error: authErr } = await supabase.auth.getUser();
+    if (authErr) {
+      setError(authErr.message);
+      setVotes([]);
+      setOwnerId(null);
+      setVotedVoteIds(new Set());
       setLoading(false);
+      return;
     }
 
-    load();
-    return () => {
-      cancelled = true;
-    };
+    const email = authData?.user?.email;
+    let oid = null;
+    if (email) {
+      const { data: ownerRow } = await supabase
+        .from('owners')
+        .select('id')
+        .eq('building_id', buildingId)
+        .eq('email', email)
+        .maybeSingle();
+      oid = ownerRow?.id ?? null;
+    }
+    setOwnerId(oid);
+
+    const { data: voteRows, error: vErr } = await supabase
+      .from('votes')
+      .select('id, title, yes_count, no_count, total_owners, status, closes_at')
+      .eq('building_id', buildingId);
+
+    if (vErr) {
+      setError(vErr.message);
+      setVotes([]);
+      setVotedVoteIds(new Set());
+      setLoading(false);
+      return;
+    }
+
+    const list = voteRows || [];
+    let voted = new Set();
+    if (oid && list.length > 0) {
+      const ids = list.map((v) => v.id);
+      const { data: ovs, error: ovErr } = await supabase
+        .from('owner_votes')
+        .select('vote_id')
+        .eq('owner_id', oid)
+        .in('vote_id', ids);
+      if (!ovErr && ovs?.length) {
+        voted = new Set(ovs.map((r) => r.vote_id));
+      }
+    }
+
+    setVotedVoteIds(voted);
+    setVotes(list);
+    setLoading(false);
   }, [buildingId]);
+
+  useEffect(() => {
+    loadVotes();
+  }, [loadVotes]);
+
+  async function castVote(vote, choice) {
+    const voteId = vote.id;
+    setFlashByVoteId((prev) => ({ ...prev, [voteId]: null }));
+
+    if (!ownerId) {
+      setFlashByVoteId((prev) => ({
+        ...prev,
+        [voteId]: "We couldn't find your flat on the owners list — ask your admin to add you.",
+      }));
+      return;
+    }
+
+    setVotingId(voteId);
+
+    const { data: existing } = await supabase
+      .from('owner_votes')
+      .select('id')
+      .eq('vote_id', voteId)
+      .eq('owner_id', ownerId)
+      .maybeSingle();
+
+    if (existing) {
+      setFlashByVoteId((prev) => ({ ...prev, [voteId]: "You've already voted on this" }));
+      setVotedVoteIds((prev) => new Set([...prev, voteId]));
+      setVotingId(null);
+      return;
+    }
+
+    const yes = Number(vote.yes_count) || 0;
+    const no = Number(vote.no_count) || 0;
+    const nextYes = yes + (choice === 'yes' ? 1 : 0);
+    const nextNo = no + (choice === 'no' ? 1 : 0);
+
+    const { error: insertErr } = await supabase.from('owner_votes').insert({
+      vote_id: voteId,
+      owner_id: ownerId,
+      building_id: buildingId,
+      choice,
+    });
+
+    if (insertErr) {
+      const dup =
+        insertErr.code === '23505' ||
+        (insertErr.message && /duplicate|unique/i.test(insertErr.message));
+      setFlashByVoteId((prev) => ({
+        ...prev,
+        [voteId]: dup ? "You've already voted on this" : insertErr.message,
+      }));
+      if (dup) {
+        setVotedVoteIds((prev) => new Set([...prev, voteId]));
+      }
+      setVotingId(null);
+      return;
+    }
+
+    const { error: updateErr } = await supabase
+      .from('votes')
+      .update({ yes_count: nextYes, no_count: nextNo })
+      .eq('id', voteId);
+
+    if (updateErr) {
+      await supabase.from('owner_votes').delete().eq('vote_id', voteId).eq('owner_id', ownerId);
+      setFlashByVoteId((prev) => ({ ...prev, [voteId]: updateErr.message }));
+      setVotingId(null);
+      return;
+    }
+
+    setVotes((prev) =>
+      prev.map((row) => (row.id === voteId ? { ...row, yes_count: nextYes, no_count: nextNo } : row))
+    );
+    setVotedVoteIds((prev) => new Set([...prev, voteId]));
+    setFlashByVoteId((prev) => ({ ...prev, [voteId]: null }));
+    setVotingId(null);
+  }
 
   const openVotes = votes
     .filter((v) => (v.status || '').toLowerCase() === 'open')
@@ -150,6 +261,10 @@ function Votes({ buildingId }) {
                     : days === 1
                       ? '1 day left'
                       : `${days} days left`;
+            const hasVoted = votedVoteIds.has(v.id);
+            const busy = votingId === v.id;
+            const flash = flashByVoteId[v.id];
+
             return (
               <div key={v.id} className="vote-card">
                 <div className="vote-q">{v.title}</div>
@@ -162,14 +277,26 @@ function Votes({ buildingId }) {
                   </span>
                   <span>{right}</span>
                 </div>
-                <div className="vote-btns">
-                  <button type="button" className="btn-y">
-                    {/insurance/i.test(v.title || '') ? 'Yes, renew' : 'Yes, approve it'}
-                  </button>
-                  <button type="button" className="btn-n">
-                    No
-                  </button>
-                </div>
+                {flash ? (
+                  <p className="vote-flash vote-flash-notice">{flash}</p>
+                ) : hasVoted ? (
+                  <p className="vote-flash vote-flash-done">You&apos;ve already voted on this</p>
+                ) : null}
+                {!hasVoted && (
+                  <div className="vote-btns">
+                    <button
+                      type="button"
+                      className="btn-y"
+                      disabled={busy}
+                      onClick={() => castVote(v, 'yes')}
+                    >
+                      {busy ? '…' : /insurance/i.test(v.title || '') ? 'Yes, renew' : 'Yes, approve it'}
+                    </button>
+                    <button type="button" className="btn-n" disabled={busy} onClick={() => castVote(v, 'no')}>
+                      {busy ? '…' : 'No'}
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })
@@ -198,20 +325,17 @@ function Votes({ buildingId }) {
           closedVotes.map((v) => {
             const yes = Number(v.yes_count) || 0;
             const no = Number(v.no_count) || 0;
-            let badgeClass = 'badge-green';
-            let badgeText = 'Passed';
-            if (no > yes) {
-              badgeClass = 'badge-red';
-              badgeText = 'Declined';
-            } else if (yes === no) {
-              badgeClass = 'badge-amber';
-              badgeText = 'Tied';
-            }
+            const passed = yes > no;
+            const badgeClass = passed ? 'badge-green' : 'badge-red';
+            const badgeText = passed ? 'Passed' : 'Declined';
             return (
               <div key={v.id} className="vote-card">
                 <div className="closed-vote-head">
                   <div className="vote-q closed-vote-title">{v.title}</div>
                   <span className={`owner-badge ${badgeClass}`}>{badgeText}</span>
+                </div>
+                <div className={`closed-vote-result ${passed ? 'closed-vote-result-pass' : 'closed-vote-result-fail'}`}>
+                  {passed ? 'This vote carried.' : 'This vote did not carry.'}
                 </div>
                 <div className="closed-vote-meta">{formatClosedMeta(v)}</div>
               </div>
