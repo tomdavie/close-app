@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from './supabase';
 
-function SignUp({ onSwitchToLogin }) {
+function SignUp({ onSwitchToLogin, inviteJoin }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -45,8 +45,12 @@ function SignUp({ onSwitchToLogin }) {
 
   return (
     <div className="auth-panel">
-      <h1 className="auth-heading">Join Clōse</h1>
-      <p className="auth-lede">Create an account to help run your building together — calmly and clearly.</p>
+      <h1 className="auth-heading">{inviteJoin ? 'Join your neighbours' : 'Join Clōse'}</h1>
+      <p className="auth-lede">
+        {inviteJoin
+          ? "Create a free account to accept your invite — then we'll confirm your flat."
+          : 'Create an account to help run your building together — calmly and clearly.'}
+      </p>
 
       <form className="auth-form" onSubmit={handleSubmit}>
         <label className="auth-label" htmlFor="signup-name">
@@ -100,7 +104,7 @@ function SignUp({ onSwitchToLogin }) {
         </button>
       </form>
 
-      <p className="auth-switch">
+      <p className={inviteJoin ? 'auth-switch auth-switch-subtle' : 'auth-switch'}>
         Already have an account?{' '}
         <button type="button" className="auth-link-btn" onClick={onSwitchToLogin}>
           Sign in

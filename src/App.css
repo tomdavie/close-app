@@ -430,11 +430,37 @@ body {
 }
 
 .vote-voted-hint {
-  margin: 8px 0 6px;
+  margin: 8px 0 2px;
   font-size: 11px;
   font-weight: 600;
   color: #aaa;
   line-height: 1.35;
+}
+
+.vote-change-mind {
+  display: block;
+  margin: 0 0 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: 'Nunito', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: #9a9a9a;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.vote-change-mind:hover:not(:disabled) {
+  color: #7a7a7a;
+}
+
+.vote-change-mind:disabled {
+  cursor: default;
+  text-decoration: none;
+  color: #bbb;
 }
 
 .vote-flash {
@@ -764,6 +790,25 @@ body {
   border-bottom: none;
 }
 
+.fund-tx-list-card {
+  position: relative;
+}
+
+.fund-tx-list-card--admin {
+  padding-top: 22px;
+}
+
+.fund-admin-view-badge {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #a89888;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .tx-icon {
   width: 30px;
   height: 30px;
@@ -1080,6 +1125,13 @@ body {
   font-size: 14px;
   color: #6f4e3e;
   font-weight: 600;
+}
+
+.auth-switch-subtle {
+  margin-top: 18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #8a7a6c;
 }
 
 .auth-link-btn {

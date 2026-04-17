@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Routes, Route, useNavigate } from 'react-router-dom';
+import { Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import './App.css';
 import { supabase } from './supabase';
 import Home from './Home';
@@ -147,10 +147,17 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
   );
 }
 
-function JoinRoute({ session, authLoading, authMode, setAuthMode }) {
+function JoinRoute({ session, authLoading }) {
+  const { buildingId } = useParams();
+  const [joinAuthMode, setJoinAuthMode] = useState('signup');
+
+  useEffect(() => {
+    setJoinAuthMode('signup');
+  }, [buildingId]);
+
   if (authLoading) return <LoadingShell />;
   if (!session) {
-    return <JoinAuthScreen authMode={authMode} setAuthMode={setAuthMode} />;
+    return <JoinAuthScreen authMode={joinAuthMode} setAuthMode={setJoinAuthMode} />;
   }
   return <JoinBuilding session={session} />;
 }
@@ -285,14 +292,7 @@ function App() {
     <Routes>
       <Route
         path="/join/:buildingId"
-        element={
-          <JoinRoute
-            session={session}
-            authLoading={authLoading}
-            authMode={authMode}
-            setAuthMode={setAuthMode}
-          />
-        }
+        element={<JoinRoute session={session} authLoading={authLoading} />}
       />
       <Route
         path="*"

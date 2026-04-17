@@ -70,15 +70,24 @@ Takes 2 minutes to set up.`
     }
 
     const newId = buildingRow.id;
-    const metaName = session.user.user_metadata?.full_name;
+
+    const { data: authData, error: authErr } = await supabase.auth.getUser();
+    const authedUser = authData?.user;
+    if (authErr || !authedUser?.id) {
+      setSubmitting(false);
+      setError(authErr?.message || 'Could not verify your session. Try refreshing the page.');
+      return;
+    }
+
+    const metaName = authedUser.user_metadata?.full_name;
     const displayName =
-      (typeof metaName === 'string' && metaName.trim()) || session.user.email?.split('@')[0] || 'Owner';
+      (typeof metaName === 'string' && metaName.trim()) || authedUser.email?.split('@')[0] || 'Owner';
 
     const { error: oErr } = await supabase.from('owners').insert({
       building_id: newId,
-      user_id: session.user.id,
+      user_id: authedUser.id,
       name: displayName,
-      email: session.user.email,
+      email: authedUser.email,
       flat: f,
       role: 'admin',
       status: 'active',

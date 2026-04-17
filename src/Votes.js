@@ -44,6 +44,7 @@ function Votes({ buildingId }) {
   const [votedVoteIds, setVotedVoteIds] = useState(() => new Set());
   const [thanksVoteIds, setThanksVoteIds] = useState(() => new Set());
   const [votingId, setVotingId] = useState(null);
+  const [retractingId, setRetractingId] = useState(null);
   const [voteErrorById, setVoteErrorById] = useState({});
   const thanksTimeoutsRef = useRef({});
 
@@ -283,6 +284,94 @@ function Votes({ buildingId }) {
     setVotingId(null);
   }
 
+  async function retractVote(vote) {
+    const voteId = vote.id;
+    setVoteErrorById((prev) => ({ ...prev, [voteId]: null }));
+
+    if (!ownerId) {
+      setVoteErrorById((prev) => ({
+        ...prev,
+        [voteId]: "We couldn't find your flat on the owners list — ask your admin to add you.",
+      }));
+      return;
+    }
+
+    setRetractingId(voteId);
+
+    const { data: ov, error: fetchErr } = await supabase
+      .from('owner_votes')
+      .select('id, choice')
+      .eq('vote_id', voteId)
+      .eq('owner_id', ownerId)
+      .maybeSingle();
+
+    if (fetchErr || !ov) {
+      setRetractingId(null);
+      setVoteErrorById((prev) => ({
+        ...prev,
+        [voteId]: fetchErr?.message || 'No vote record found to remove.',
+      }));
+      return;
+    }
+
+    const choice = (ov.choice || '').toLowerCase();
+    if (choice !== 'yes' && choice !== 'no') {
+      setRetractingId(null);
+      setVoteErrorById((prev) => ({ ...prev, [voteId]: 'Invalid saved vote choice.' }));
+      return;
+    }
+
+    const yes = Number(vote.yes_count) || 0;
+    const no = Number(vote.no_count) || 0;
+    const nextYes = choice === 'yes' ? Math.max(0, yes - 1) : yes;
+    const nextNo = choice === 'no' ? Math.max(0, no - 1) : no;
+
+    const { error: delErr } = await supabase.from('owner_votes').delete().eq('id', ov.id);
+
+    if (delErr) {
+      setVoteErrorById((prev) => ({ ...prev, [voteId]: delErr.message }));
+      setRetractingId(null);
+      return;
+    }
+
+    const { error: updateErr } = await supabase
+      .from('votes')
+      .update({ yes_count: nextYes, no_count: nextNo })
+      .eq('id', voteId);
+
+    if (updateErr) {
+      await supabase.from('owner_votes').insert({
+        vote_id: voteId,
+        owner_id: ownerId,
+        building_id: buildingId,
+        choice,
+      });
+      setVoteErrorById((prev) => ({ ...prev, [voteId]: updateErr.message }));
+      setRetractingId(null);
+      return;
+    }
+
+    if (thanksTimeoutsRef.current[voteId]) {
+      clearTimeout(thanksTimeoutsRef.current[voteId]);
+      delete thanksTimeoutsRef.current[voteId];
+    }
+
+    setVotes((prev) =>
+      prev.map((row) => (row.id === voteId ? { ...row, yes_count: nextYes, no_count: nextNo } : row))
+    );
+    setVotedVoteIds((prev) => {
+      const next = new Set(prev);
+      next.delete(voteId);
+      return next;
+    });
+    setThanksVoteIds((prev) => {
+      const next = new Set(prev);
+      next.delete(voteId);
+      return next;
+    });
+    setRetractingId(null);
+  }
+
   const openVotes = votes
     .filter((v) => (v.status || '').toLowerCase() === 'open')
     .sort((a, b) => new Date(a.closes_at).getTime() - new Date(b.closes_at).getTime());
@@ -444,6 +533,7 @@ function Votes({ buildingId }) {
             const hasVoted = votedVoteIds.has(v.id);
             const showThanks = thanksVoteIds.has(v.id);
             const busy = votingId === v.id;
+            const retractBusy = retractingId === v.id;
             const errMsg = voteErrorById[v.id];
 
             return (
@@ -461,7 +551,17 @@ function Votes({ buildingId }) {
                   </p>
                 )}
                 {hasVoted && !showThanks && (
-                  <p className="vote-voted-hint">You&apos;ve voted on this</p>
+                  <>
+                    <p className="vote-voted-hint">You&apos;ve voted on this</p>
+                    <button
+                      type="button"
+                      className="vote-change-mind"
+                      disabled={retractBusy || busy}
+                      onClick={() => retractVote(v)}
+                    >
+                      {retractBusy ? 'Removing…' : 'Changed your mind?'}
+                    </button>
+                  </>
                 )}
                 <div className="vote-meta">
                   <span>
@@ -475,12 +575,12 @@ function Votes({ buildingId }) {
                     <button
                       type="button"
                       className="btn-y"
-                      disabled={busy}
+                      disabled={busy || retractBusy}
                       onClick={() => castVote(v, 'yes')}
                     >
                       {busy ? '…' : /insurance/i.test(v.title || '') ? 'Yes, renew' : 'Yes, approve it'}
                     </button>
-                    <button type="button" className="btn-n" disabled={busy} onClick={() => castVote(v, 'no')}>
+                    <button type="button" className="btn-n" disabled={busy || retractBusy} onClick={() => castVote(v, 'no')}>
                       {busy ? '…' : 'No'}
                     </button>
                   </div>

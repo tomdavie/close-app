@@ -24,7 +24,8 @@ export function JoinAuthScreen({ authMode, setAuthMode }) {
       </div>
       <div className="content content-auth">
         <p className="join-context">
-          After you sign in, we&apos;ll ask which flat is yours — then you&apos;re in with everyone else.
+          After you create an account or sign in, we&apos;ll ask which flat is yours — then you&apos;re in with
+          everyone else.
         </p>
         {authMode === 'login' ? (
           <Login
@@ -33,7 +34,7 @@ export function JoinAuthScreen({ authMode, setAuthMode }) {
             introLede="Sign in to accept your invite and join your neighbours."
           />
         ) : (
-          <SignUp onSwitchToLogin={() => setAuthMode('login')} />
+          <SignUp inviteJoin onSwitchToLogin={() => setAuthMode('login')} />
         )}
       </div>
     </div>
@@ -81,19 +82,30 @@ function JoinBuildingForm({ session, buildingId, onSuccess }) {
     }
 
     setSubmitting(true);
-    const metaName = session.user.user_metadata?.full_name;
+
+    const { data: authData, error: authErr } = await supabase.auth.getUser();
+    const authedUser = authData?.user;
+    if (authErr || !authedUser?.id) {
+      setSubmitting(false);
+      setError(authErr?.message || 'Could not verify your session. Try signing in again.');
+      return;
+    }
+
+    const metaName = authedUser.user_metadata?.full_name;
     const displayName =
-      (typeof metaName === 'string' && metaName.trim()) || session.user.email?.split('@')[0] || 'Owner';
+      (typeof metaName === 'string' && metaName.trim()) || authedUser.email?.split('@')[0] || 'Owner';
+    const userId = authedUser.id;
+    const userEmail = authedUser.email;
 
     const { data: existing } = await supabase
       .from('owners')
       .select('id')
       .eq('building_id', buildingId)
-      .eq('email', session.user.email)
+      .eq('email', userEmail)
       .maybeSingle();
 
     if (existing) {
-      await supabase.from('owners').update({ user_id: session.user.id }).eq('id', existing.id);
+      await supabase.from('owners').update({ user_id: userId }).eq('id', existing.id);
       const { error: uErr } = await supabase.auth.updateUser({
         data: { building_id: buildingId },
       });
@@ -109,9 +121,9 @@ function JoinBuildingForm({ session, buildingId, onSuccess }) {
 
     const { error: oErr } = await supabase.from('owners').insert({
       building_id: buildingId,
-      user_id: session.user.id,
+      user_id: userId,
       name: displayName,
-      email: session.user.email,
+      email: userEmail,
       flat: f,
       role: 'owner',
       status: 'active',

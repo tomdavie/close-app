@@ -30,10 +30,27 @@ function todayInputValue() {
   return `${y}-${m}-${day}`;
 }
 
+/** Admin: full list. Non-admin: one "Contributions received" row + all outgoing rows (date order). */
+function buildFundTxRows(transactions, isAdmin) {
+  if (isAdmin) {
+    return transactions.map((t, i) => ({ kind: 'tx', key: `tx-${t.date}-${t.description}-${i}`, tx: t }));
+  }
+  const sorted = [...transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const inTotal = sorted.filter((t) => t.type === 'in').reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+  const outs = sorted.filter((t) => t.type === 'out');
+  const rows = [];
+  if (inTotal > 0) {
+    rows.push({ kind: 'in-summary', key: 'contributions-received', total: inTotal });
+  }
+  outs.forEach((t, i) => rows.push({ kind: 'tx', key: `out-${t.date}-${t.description}-${i}`, tx: t }));
+  return rows;
+}
+
 function Fund({ buildingId, building }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [transactions, setTransactions] = useState([]);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [formDescription, setFormDescription] = useState('');
   const [formAmount, setFormAmount] = useState('');
@@ -42,19 +59,30 @@ function Fund({ buildingId, building }) {
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState(null);
 
-  const fetchTransactions = useCallback(async () => {
-    const { data, error: txErr } = await supabase
-      .from('transactions')
-      .select('description, amount, type, date, status')
-      .eq('building_id', buildingId)
-      .order('date', { ascending: false });
+  const fetchFundData = useCallback(async () => {
+    const { data: authData } = await supabase.auth.getUser();
+    const email = authData?.user?.email ?? null;
 
-    if (txErr) {
-      setError(txErr.message);
+    const [ownerRes, txRes] = await Promise.all([
+      email
+        ? supabase.from('owners').select('role').eq('building_id', buildingId).eq('email', email).maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      supabase
+        .from('transactions')
+        .select('description, amount, type, date, status')
+        .eq('building_id', buildingId)
+        .order('date', { ascending: false }),
+    ]);
+
+    if (txRes.error) {
+      setError(txRes.error.message);
       return false;
     }
 
-    setTransactions(data || []);
+    const admin =
+      !ownerRes.error && ownerRes.data && (ownerRes.data.role || '').toLowerCase() === 'admin';
+    setIsAdmin(admin);
+    setTransactions(txRes.data || []);
     setError(null);
     return true;
   }, [buildingId]);
@@ -65,7 +93,7 @@ function Fund({ buildingId, building }) {
     async function load() {
       setLoading(true);
       setError(null);
-      const ok = await fetchTransactions();
+      const ok = await fetchFundData();
       if (!cancelled) {
         if (!ok) setTransactions([]);
         setLoading(false);
@@ -76,7 +104,7 @@ function Fund({ buildingId, building }) {
     return () => {
       cancelled = true;
     };
-  }, [fetchTransactions]);
+  }, [fetchFundData]);
 
   function resetAddForm() {
     setFormDescription('');
@@ -124,7 +152,7 @@ function Fund({ buildingId, building }) {
       return;
     }
 
-    await fetchTransactions();
+    await fetchFundData();
     closeAddForm();
   }
 
@@ -139,6 +167,7 @@ function Fund({ buildingId, building }) {
   const hasTarget = Number.isFinite(targetFund) && targetFund > 0;
   const pct = hasTarget ? Math.min(100, Math.round((balance / targetFund) * 100)) : 0;
   const pendingCount = transactions.filter((t) => isPendingStatus(t.status)).length;
+  const txRows = buildFundTxRows(transactions, isAdmin);
 
   if (loading) {
     return (
@@ -308,7 +337,8 @@ function Fund({ buildingId, building }) {
 
       <section className="home-section">
         <div className="slabel">Recent transactions</div>
-        <div className="card">
+        <div className={`card fund-tx-list-card${isAdmin ? ' fund-tx-list-card--admin' : ''}`}>
+          {isAdmin && <span className="fund-admin-view-badge">Admin view</span>}
           {transactions.length === 0 ? (
             <div className="tx-item">
               <div className="tx-icon tx-icon-in">↓</div>
@@ -319,11 +349,25 @@ function Fund({ buildingId, building }) {
               <div className="tx-amt in">—</div>
             </div>
           ) : (
-            transactions.map((t, i) => {
+            txRows.map((row) => {
+              if (row.kind === 'in-summary') {
+                const amt = row.total;
+                return (
+                  <div className="tx-item" key={row.key}>
+                    <div className="tx-icon tx-icon-in">↓</div>
+                    <div className="tx-desc">
+                      Contributions received
+                      <div className="tx-date">Summary of all payments in</div>
+                    </div>
+                    <div className="tx-amt in">+{formatMoney(amt)}</div>
+                  </div>
+                );
+              }
+              const t = row.tx;
               const isIn = t.type === 'in';
               const amt = Number(t.amount) || 0;
               return (
-                <div className="tx-item" key={`${t.date}-${t.description}-${i}`}>
+                <div className="tx-item" key={row.key}>
                   <div className={`tx-icon ${isIn ? 'tx-icon-in' : 'tx-icon-out'}`}>
                     {isIn ? '↓' : '↑'}
                   </div>
