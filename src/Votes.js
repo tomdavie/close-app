@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from './supabase';
 
 function daysUntilClose(dateStr) {
@@ -33,8 +33,10 @@ function Votes({ buildingId }) {
   const [votes, setVotes] = useState([]);
   const [ownerId, setOwnerId] = useState(null);
   const [votedVoteIds, setVotedVoteIds] = useState(() => new Set());
+  const [thanksVoteIds, setThanksVoteIds] = useState(() => new Set());
   const [votingId, setVotingId] = useState(null);
-  const [flashByVoteId, setFlashByVoteId] = useState({});
+  const [voteErrorById, setVoteErrorById] = useState({});
+  const thanksTimeoutsRef = useRef({});
 
   const loadVotes = useCallback(async () => {
     setLoading(true);
@@ -99,12 +101,33 @@ function Votes({ buildingId }) {
     loadVotes();
   }, [loadVotes]);
 
+  useEffect(() => {
+    const timeouts = thanksTimeoutsRef.current;
+    return () => {
+      Object.values(timeouts).forEach((t) => clearTimeout(t));
+    };
+  }, []);
+
+  function scheduleThanksClear(voteId) {
+    if (thanksTimeoutsRef.current[voteId]) {
+      clearTimeout(thanksTimeoutsRef.current[voteId]);
+    }
+    thanksTimeoutsRef.current[voteId] = setTimeout(() => {
+      setThanksVoteIds((prev) => {
+        const next = new Set(prev);
+        next.delete(voteId);
+        return next;
+      });
+      delete thanksTimeoutsRef.current[voteId];
+    }, 2000);
+  }
+
   async function castVote(vote, choice) {
     const voteId = vote.id;
-    setFlashByVoteId((prev) => ({ ...prev, [voteId]: null }));
+    setVoteErrorById((prev) => ({ ...prev, [voteId]: null }));
 
     if (!ownerId) {
-      setFlashByVoteId((prev) => ({
+      setVoteErrorById((prev) => ({
         ...prev,
         [voteId]: "We couldn't find your flat on the owners list — ask your admin to add you.",
       }));
@@ -121,7 +144,6 @@ function Votes({ buildingId }) {
       .maybeSingle();
 
     if (existing) {
-      setFlashByVoteId((prev) => ({ ...prev, [voteId]: "You've already voted on this" }));
       setVotedVoteIds((prev) => new Set([...prev, voteId]));
       setVotingId(null);
       return;
@@ -143,12 +165,10 @@ function Votes({ buildingId }) {
       const dup =
         insertErr.code === '23505' ||
         (insertErr.message && /duplicate|unique/i.test(insertErr.message));
-      setFlashByVoteId((prev) => ({
-        ...prev,
-        [voteId]: dup ? "You've already voted on this" : insertErr.message,
-      }));
       if (dup) {
         setVotedVoteIds((prev) => new Set([...prev, voteId]));
+      } else {
+        setVoteErrorById((prev) => ({ ...prev, [voteId]: insertErr.message }));
       }
       setVotingId(null);
       return;
@@ -161,7 +181,7 @@ function Votes({ buildingId }) {
 
     if (updateErr) {
       await supabase.from('owner_votes').delete().eq('vote_id', voteId).eq('owner_id', ownerId);
-      setFlashByVoteId((prev) => ({ ...prev, [voteId]: updateErr.message }));
+      setVoteErrorById((prev) => ({ ...prev, [voteId]: updateErr.message }));
       setVotingId(null);
       return;
     }
@@ -170,7 +190,8 @@ function Votes({ buildingId }) {
       prev.map((row) => (row.id === voteId ? { ...row, yes_count: nextYes, no_count: nextNo } : row))
     );
     setVotedVoteIds((prev) => new Set([...prev, voteId]));
-    setFlashByVoteId((prev) => ({ ...prev, [voteId]: null }));
+    setThanksVoteIds((prev) => new Set([...prev, voteId]));
+    scheduleThanksClear(voteId);
     setVotingId(null);
   }
 
@@ -262,8 +283,9 @@ function Votes({ buildingId }) {
                       ? '1 day left'
                       : `${days} days left`;
             const hasVoted = votedVoteIds.has(v.id);
+            const showThanks = thanksVoteIds.has(v.id);
             const busy = votingId === v.id;
-            const flash = flashByVoteId[v.id];
+            const errMsg = voteErrorById[v.id];
 
             return (
               <div key={v.id} className="vote-card">
@@ -271,17 +293,24 @@ function Votes({ buildingId }) {
                 <div className="vbar-wrap">
                   <div className="vbar" style={{ width: `${pct}%` }} />
                 </div>
+                {showThanks && (
+                  <p className="vote-confirm" role="status">
+                    <span className="vote-confirm-icon" aria-hidden>
+                      ✓
+                    </span>
+                    Thanks for voting!
+                  </p>
+                )}
+                {hasVoted && !showThanks && (
+                  <p className="vote-voted-hint">You&apos;ve voted on this</p>
+                )}
                 <div className="vote-meta">
                   <span>
                     {cast} of {total} voted · {yes} yes, {no} no
                   </span>
                   <span>{right}</span>
                 </div>
-                {flash ? (
-                  <p className="vote-flash vote-flash-notice">{flash}</p>
-                ) : hasVoted ? (
-                  <p className="vote-flash vote-flash-done">You&apos;ve already voted on this</p>
-                ) : null}
+                {errMsg && <p className="vote-flash vote-flash-error">{errMsg}</p>}
                 {!hasVoted && (
                   <div className="vote-btns">
                     <button

@@ -348,22 +348,52 @@ body {
   font-size: 11px;
   color: #999;
   font-weight: 600;
+  margin-top: 0;
   margin-bottom: 10px;
+}
+
+.vote-confirm {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 8px 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--cl-teal-dark);
+  line-height: 1.35;
+}
+
+.vote-confirm-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--cl-teal-light);
+  color: var(--cl-teal-dark);
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.vote-voted-hint {
+  margin: 8px 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #aaa;
+  line-height: 1.35;
 }
 
 .vote-flash {
   font-size: 12px;
   font-weight: 700;
-  margin: 0 0 10px;
+  margin: 8px 0 0;
   line-height: 1.35;
 }
 
-.vote-flash-notice {
+.vote-flash-error {
   color: var(--cl-rust-dark);
-}
-
-.vote-flash-done {
-  color: #6f4e3e;
 }
 
 .vote-btns {
