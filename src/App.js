@@ -8,6 +8,7 @@ import Votes from './Votes';
 import Quotes from './Quotes';
 import Fund from './Fund';
 import BuildingSettings from './BuildingSettings';
+import InviteShare from './InviteShare';
 import Login from './Login';
 import SignUp from './SignUp';
 import CreateBuilding from './CreateBuilding';
@@ -75,26 +76,6 @@ function AuthShell({ authMode, setAuthMode }) {
   );
 }
 
-function SettingsGearIcon() {
-  return (
-    <svg
-      className="topbar-settings-icon"
-      width="22"
-      height="22"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-    </svg>
-  );
-}
-
 function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated }) {
   const [screen, setScreen] = useState('home');
   const buildingLine = building
@@ -109,18 +90,13 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
             Cl<em>ō</em>se
           </div>
           <div className="topbar-actions">
-            {screen === 'settings' ? (
+            {screen === 'settings' || screen === 'invite' ? (
               <button type="button" className="topbar-back-btn" onClick={() => setScreen('home')}>
                 ← Back
               </button>
             ) : (
-              <button
-                type="button"
-                className="topbar-settings-btn"
-                aria-label="Building settings"
-                onClick={() => setScreen('settings')}
-              >
-                <SettingsGearIcon />
+              <button type="button" className="topbar-settings-link" onClick={() => setScreen('settings')}>
+                Settings
               </button>
             )}
           </div>
@@ -130,7 +106,7 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
         <span className="topbar-tag">Self-factored · 6 owners</span>
       </div>
 
-      {screen !== 'settings' && (
+      {screen !== 'settings' && screen !== 'invite' && (
         <div className="nav">
           <button className={screen === 'home' ? 'nav-item active' : 'nav-item'} onClick={() => setScreen('home')}>
             ⌂ Home
@@ -152,15 +128,10 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
 
       <div className="content">
         {screen === 'settings' && (
-          <BuildingSettings
-            session={session}
-            buildingId={buildingId}
-            building={building}
-            onBuildingUpdated={onBuildingUpdated}
-            onLogout={onLogout}
-          />
+          <BuildingSettings session={session} onBuildingUpdated={onBuildingUpdated} onLogout={onLogout} />
         )}
-        {screen === 'home' && <Home buildingId={buildingId} />}
+        {screen === 'invite' && <InviteShare buildingId={buildingId} building={building} />}
+        {screen === 'home' && <Home buildingId={buildingId} onOpenInvite={() => setScreen('invite')} />}
         {screen === 'owners' && <Owners buildingId={buildingId} />}
         {screen === 'votes' && <Votes buildingId={buildingId} />}
         {screen === 'quotes' && <Quotes buildingId={buildingId} />}

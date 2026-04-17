@@ -93,6 +93,7 @@ function JoinBuildingForm({ session, buildingId, onSuccess }) {
       .maybeSingle();
 
     if (existing) {
+      await supabase.from('owners').update({ user_id: session.user.id }).eq('id', existing.id);
       const { error: uErr } = await supabase.auth.updateUser({
         data: { building_id: buildingId },
       });
@@ -108,6 +109,7 @@ function JoinBuildingForm({ session, buildingId, onSuccess }) {
 
     const { error: oErr } = await supabase.from('owners').insert({
       building_id: buildingId,
+      user_id: session.user.id,
       name: displayName,
       email: session.user.email,
       flat: f,

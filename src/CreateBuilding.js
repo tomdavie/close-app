@@ -76,6 +76,7 @@ Takes 2 minutes to set up.`
 
     const { error: oErr } = await supabase.from('owners').insert({
       building_id: newId,
+      user_id: session.user.id,
       name: displayName,
       email: session.user.email,
       flat: f,

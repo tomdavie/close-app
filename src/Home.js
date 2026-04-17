@@ -84,13 +84,16 @@ function heroGreetingLine(user) {
   return `${timeOfDayGreeting()}, ${name}`;
 }
 
-function Home({ buildingId }) {
+function Home({ buildingId, onOpenInvite }) {
   const [authUser, setAuthUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [owners, setOwners] = useState([]);
   const [votes, setVotes] = useState([]);
+  const [ownerId, setOwnerId] = useState(null);
+  const [votedVoteIds, setVotedVoteIds] = useState(() => new Set());
+  const [couldLoadOwnerVotes, setCouldLoadOwnerVotes] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -135,24 +138,67 @@ function Home({ buildingId }) {
       if (cancelled) return;
 
       if (txRes.error) {
-        setError(txRes.error.message);
-        setLoading(false);
+        if (!cancelled) {
+          setError(txRes.error.message);
+          setLoading(false);
+        }
         return;
       }
       if (ownersRes.error) {
-        setError(ownersRes.error.message);
-        setLoading(false);
+        if (!cancelled) {
+          setError(ownersRes.error.message);
+          setLoading(false);
+        }
         return;
       }
       if (votesRes.error) {
-        setError(votesRes.error.message);
-        setLoading(false);
+        if (!cancelled) {
+          setError(votesRes.error.message);
+          setLoading(false);
+        }
         return;
       }
 
+      const voteList = votesRes.data || [];
+      const { data: authData } = await supabase.auth.getUser();
+      if (cancelled) return;
+
+      const email = authData?.user?.email;
+      let oid = null;
+      if (email) {
+        const { data: ownerRow } = await supabase
+          .from('owners')
+          .select('id')
+          .eq('building_id', buildingId)
+          .eq('email', email)
+          .maybeSingle();
+        oid = ownerRow?.id ?? null;
+      }
+
+      let voted = new Set();
+      let ownerVotesOk = true;
+      if (oid && voteList.length > 0) {
+        const ids = voteList.map((v) => v.id);
+        const { data: ovs, error: ovErr } = await supabase
+          .from('owner_votes')
+          .select('vote_id')
+          .eq('owner_id', oid)
+          .in('vote_id', ids);
+        if (ovErr) {
+          ownerVotesOk = false;
+        } else if (ovs?.length) {
+          voted = new Set(ovs.map((r) => r.vote_id));
+        }
+      }
+
+      if (cancelled) return;
+
       setTransactions(txRes.data || []);
       setOwners(ownersRes.data || []);
-      setVotes(votesRes.data || []);
+      setVotes(voteList);
+      setOwnerId(oid);
+      setVotedVoteIds(voted);
+      setCouldLoadOwnerVotes(ownerVotesOk);
       setLoading(false);
     }
 
@@ -174,7 +220,12 @@ function Home({ buildingId }) {
     (a, b) => new Date(a.closes_at).getTime() - new Date(b.closes_at).getTime()
   );
 
-  const alerts = openVotesSorted.slice(0, 5).map((v) => {
+  const openVotesNeedingMyVote =
+    ownerId != null && couldLoadOwnerVotes
+      ? openVotesSorted.filter((v) => !votedVoteIds.has(v.id))
+      : [];
+
+  const alerts = openVotesNeedingMyVote.slice(0, 5).map((v) => {
     const cast = (Number(v.yes_count) || 0) + (Number(v.no_count) || 0);
     const total = Number(v.total_owners) || 0;
     const days = daysUntilEndOfDayUtc(v.closes_at);
@@ -261,7 +312,12 @@ function Home({ buildingId }) {
             <div className="metric-label">Building fund</div>
             <div className="metric-tag">Loading…</div>
           </div>
-          <div className="metric">
+          <div className={`metric${onOpenInvite ? ' metric--with-invite-btn' : ''}`}>
+            {onOpenInvite && (
+              <span className="metric-invite-btn metric-invite-btn--skeleton" aria-hidden>
+                +
+              </span>
+            )}
             <div className="metric-val">…</div>
             <div className="metric-label">Owners active</div>
             <div className="metric-tag">Loading…</div>
@@ -309,7 +365,18 @@ function Home({ buildingId }) {
           <div className="metric-label">Building fund</div>
           <div className="metric-tag">{error ? '—' : 'Live from transactions'}</div>
         </div>
-        <div className="metric">
+        <div className={`metric${onOpenInvite ? ' metric--with-invite-btn' : ''}`}>
+          {onOpenInvite && (
+            <button
+              type="button"
+              className="metric-invite-btn"
+              onClick={onOpenInvite}
+              aria-label="Invite neighbours"
+              title="Invite neighbours"
+            >
+              +
+            </button>
+          )}
           <div className="metric-val">
             {error ? '—' : totalOwners ? `${activeCount}/${totalOwners}` : '—'}
           </div>

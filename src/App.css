@@ -138,6 +138,58 @@ body {
   border-radius: 12px;
 }
 
+.metric--with-invite-btn {
+  position: relative;
+}
+
+.metric-invite-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: var(--cl-teal);
+  box-shadow: 0 1px 4px rgba(26, 122, 101, 0.28);
+  cursor: pointer;
+  z-index: 1;
+}
+
+.metric-invite-btn:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.metric-invite-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.metric-invite-btn--skeleton {
+  pointer-events: none;
+  opacity: 0.35;
+}
+
+.invite-share .invite-share-card {
+  padding-bottom: 18px;
+}
+
+.invite-share-lede {
+  margin-bottom: 4px;
+}
+
+.invite-share-wa-label {
+  margin-top: 18px;
+}
+
 .home-section {
   display: flex;
   flex-direction: column;
@@ -796,28 +848,24 @@ body {
   flex-shrink: 0;
 }
 
-.topbar-settings-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  margin: -6px -4px -6px 0;
+.topbar-settings-link {
+  flex-shrink: 0;
+  margin: 0;
   padding: 0;
   border: none;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.14);
-  color: #fff;
+  background: none;
   cursor: pointer;
-  transition: background 0.15s ease;
+  font-family: 'Nunito', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.88);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  letter-spacing: 0.02em;
 }
 
-.topbar-settings-btn:hover {
-  background: rgba(255, 255, 255, 0.26);
-}
-
-.topbar-settings-icon {
-  display: block;
+.topbar-settings-link:hover {
+  color: #fff;
 }
 
 .topbar-back-btn {
@@ -839,6 +887,11 @@ body {
 
 .settings-screen {
   padding-bottom: 8px;
+}
+
+.settings-page-error {
+  color: #7a2e18;
+  font-weight: 700;
 }
 
 .settings-form-note {

@@ -1,13 +1,64 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { supabase } from './supabase';
 
+const BUILDING_SELECT = 'id, address, postcode, target_fund, name, floor_count, approx_flat_count';
+
 function numOrEmpty(v) {
   if (v === null || v === undefined) return '';
   const n = Number(v);
   return Number.isFinite(n) ? String(n) : '';
 }
 
-function BuildingSettings({ session, buildingId, building, onBuildingUpdated, onLogout }) {
+function applyBuildingToForm(b, setters) {
+  const { setBName, setBAddress, setBPostcode, setBFloors, setBFlats } = setters;
+  setBName(b?.name && String(b.name).trim() ? b.name : '');
+  setBAddress(b?.address || '');
+  setBPostcode(b?.postcode || '');
+  setBFloors(numOrEmpty(b?.floor_count));
+  setBFlats(numOrEmpty(b?.approx_flat_count));
+}
+
+/** Prefer user_id = auth user; fall back to email if column missing or no row. */
+async function fetchOwnerForUser(bid, user) {
+  const selectCols = 'id, flat, name';
+  const byUserId = await supabase
+    .from('owners')
+    .select(selectCols)
+    .eq('building_id', bid)
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  if (byUserId.data) return { data: byUserId.data, error: null };
+
+  const msg = byUserId.error?.message || '';
+  const userIdColumnMissing = byUserId.error && /user_id|column .* does not exist/i.test(msg);
+
+  if (byUserId.error && !userIdColumnMissing) {
+    return { data: null, error: byUserId.error };
+  }
+
+  if (!user.email) {
+    return { data: null, error: byUserId.error || null };
+  }
+
+  const byEmail = await supabase
+    .from('owners')
+    .select(selectCols)
+    .eq('building_id', bid)
+    .eq('email', user.email)
+    .maybeSingle();
+
+  if (byEmail.error) return { data: null, error: byEmail.error };
+  return { data: byEmail.data, error: null };
+}
+
+function BuildingSettings({ session, onBuildingUpdated, onLogout }) {
+  const [pageLoading, setPageLoading] = useState(true);
+  const [pageError, setPageError] = useState(null);
+
+  const [authUser, setAuthUser] = useState(null);
+  const [building, setBuilding] = useState(null);
+
   const [bName, setBName] = useState('');
   const [bAddress, setBAddress] = useState('');
   const [bPostcode, setBPostcode] = useState('');
@@ -19,7 +70,6 @@ function BuildingSettings({ session, buildingId, building, onBuildingUpdated, on
 
   const [ownerId, setOwnerId] = useState(null);
   const [loadError, setLoadError] = useState(null);
-  const [loadingOwner, setLoadingOwner] = useState(true);
 
   const [buildingSaving, setBuildingSaving] = useState(false);
   const [buildingMsg, setBuildingMsg] = useState(null);
@@ -29,57 +79,89 @@ function BuildingSettings({ session, buildingId, building, onBuildingUpdated, on
   const [youMsg, setYouMsg] = useState(null);
   const [youErr, setYouErr] = useState(null);
 
-  useEffect(() => {
-    if (!building) return;
-    setBName((building.name || '').trim() ? building.name : '');
-    setBAddress(building.address || '');
-    setBPostcode(building.postcode || '');
-    setBFloors(numOrEmpty(building.floor_count));
-    setBFlats(numOrEmpty(building.approx_flat_count));
-  }, [building]);
+  const reload = useCallback(async () => {
+    setPageLoading(true);
+    setPageError(null);
+    setLoadError(null);
 
-  const loadOwner = useCallback(async () => {
-    if (!buildingId || !session?.user?.email) {
+    const { data: authData, error: authErr } = await supabase.auth.getUser();
+    const user = authData?.user ?? null;
+
+    if (authErr || !user) {
+      setAuthUser(null);
+      setBuilding(null);
       setOwnerId(null);
-      setFlat('');
-      setLoadingOwner(false);
+      setPageError(authErr?.message || 'Could not load your account.');
+      setPageLoading(false);
       return;
     }
-    setLoadingOwner(true);
-    setLoadError(null);
-    const { data, error } = await supabase
-      .from('owners')
-      .select('id, flat')
-      .eq('building_id', buildingId)
-      .eq('email', session.user.email)
+
+    setAuthUser(user);
+
+    const bid = user.user_metadata?.building_id;
+    if (!bid) {
+      setBuilding(null);
+      setOwnerId(null);
+      setPageError('No building is linked to this account.');
+      setPageLoading(false);
+      return;
+    }
+
+    const { data: bRow, error: bErr } = await supabase
+      .from('buildings')
+      .select(BUILDING_SELECT)
+      .eq('id', bid)
       .maybeSingle();
 
-    if (error) {
-      setLoadError(error.message);
+    if (bErr) {
+      setBuilding(null);
+      setOwnerId(null);
+      setPageError(bErr.message);
+      setPageLoading(false);
+      return;
+    }
+
+    if (!bRow) {
+      setBuilding(null);
+      setOwnerId(null);
+      setPageError('We could not find that building.');
+      setPageLoading(false);
+      return;
+    }
+
+    setBuilding(bRow);
+    applyBuildingToForm(bRow, { setBName, setBAddress, setBPostcode, setBFloors, setBFlats });
+
+    const { data: ownerRow, error: ownerErr } = await fetchOwnerForUser(bid, user);
+
+    if (ownerErr) {
       setOwnerId(null);
       setFlat('');
-    } else if (data) {
-      setOwnerId(data.id);
-      setFlat(data.flat || '');
-    } else {
+      setLoadError(ownerErr.message);
+    } else if (!ownerRow) {
       setOwnerId(null);
       setFlat('');
       setLoadError("We couldn't find your owner record for this building.");
+    } else {
+      setOwnerId(ownerRow.id);
+      setFlat(ownerRow.flat || '');
+      setLoadError(null);
     }
-    setLoadingOwner(false);
-  }, [buildingId, session?.user?.email]);
+
+    const fn = user.user_metadata?.full_name;
+    const fromMeta = typeof fn === 'string' && fn.trim() ? fn : '';
+    setDisplayName(fromMeta || (ownerRow?.name && String(ownerRow.name).trim() ? ownerRow.name : ''));
+
+    setPageLoading(false);
+  }, []);
 
   useEffect(() => {
-    loadOwner();
-  }, [loadOwner]);
-
-  useEffect(() => {
-    const fn = session?.user?.user_metadata?.full_name;
-    setDisplayName(typeof fn === 'string' ? fn : '');
-  }, [session?.user?.user_metadata?.full_name, session?.user?.id]);
+    reload();
+  }, [reload]);
 
   async function handleSaveBuilding(e) {
     e.preventDefault();
+    if (!building?.id) return;
     setBuildingErr(null);
     setBuildingMsg(null);
     const name = bName.trim();
@@ -120,7 +202,7 @@ function BuildingSettings({ session, buildingId, building, onBuildingUpdated, on
         floor_count: floorCount,
         approx_flat_count: approxFlats,
       })
-      .eq('id', buildingId);
+      .eq('id', building.id);
 
     setBuildingSaving(false);
     if (error) {
@@ -129,10 +211,22 @@ function BuildingSettings({ session, buildingId, building, onBuildingUpdated, on
     }
     setBuildingMsg('Building saved.');
     await onBuildingUpdated?.();
+
+    const { data: fresh } = await supabase.from('buildings').select(BUILDING_SELECT).eq('id', building.id).maybeSingle();
+    if (fresh) {
+      setBuilding(fresh);
+      applyBuildingToForm(fresh, { setBName, setBAddress, setBPostcode, setBFloors, setBFlats });
+    }
   }
 
   async function handleSaveYou(e) {
     e.preventDefault();
+    const user = authUser || session?.user;
+    if (!user) {
+      setYouErr('Not signed in.');
+      return;
+    }
+
     setYouErr(null);
     setYouMsg(null);
     const trimmedName = displayName.trim();
@@ -151,7 +245,7 @@ function BuildingSettings({ session, buildingId, building, onBuildingUpdated, on
     }
 
     setYouSaving(true);
-    const meta = { ...(session.user.user_metadata || {}) };
+    const meta = { ...(user.user_metadata || {}) };
     meta.full_name = trimmedName;
 
     const { error: authErr } = await supabase.auth.updateUser({
@@ -179,13 +273,25 @@ function BuildingSettings({ session, buildingId, building, onBuildingUpdated, on
     }
 
     await supabase.auth.refreshSession();
+    const { data: authData } = await supabase.auth.getUser();
+    if (authData?.user) setAuthUser(authData.user);
     setYouMsg('Your details saved.');
   }
 
-  if (!building) {
+  if (pageLoading) {
     return (
       <main className="home settings-screen">
-        <p className="auth-loading-text">Loading building…</p>
+        <p className="auth-loading-text">Loading settings…</p>
+      </main>
+    );
+  }
+
+  if (pageError) {
+    return (
+      <main className="home settings-screen">
+        <div className="card fund-add-card">
+          <p className="settings-form-note settings-page-error">{pageError}</p>
+        </div>
       </main>
     );
   }
@@ -276,9 +382,7 @@ function BuildingSettings({ session, buildingId, building, onBuildingUpdated, on
       <section className="home-section">
         <div className="slabel">Your details</div>
         <div className="card fund-add-card">
-          {loadingOwner ? (
-            <p className="settings-form-note">Loading your details…</p>
-          ) : loadError && !ownerId ? (
+          {loadError && !ownerId ? (
             <div className="fund-form-error">{loadError}</div>
           ) : (
             <form className="fund-add-form" onSubmit={handleSaveYou}>
