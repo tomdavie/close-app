@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from './supabase';
 
-const BUILDING_ID = 'c60437a0-fdf5-452f-ba22-337ab088559e';
-
 function formatMoney(amount) {
   const n = Number(amount);
   if (!Number.isFinite(n)) return '£0';
@@ -24,10 +22,9 @@ function isPendingStatus(status) {
   return (status || '').toLowerCase() === 'pending';
 }
 
-function Fund() {
+function Fund({ buildingId, building }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [building, setBuilding] = useState(null);
   const [transactions, setTransactions] = useState([]);
 
   useEffect(() => {
@@ -37,35 +34,21 @@ function Fund() {
       setLoading(true);
       setError(null);
 
-      const buildingReq = supabase
-        .from('buildings')
-        .select('target_fund, name')
-        .eq('id', BUILDING_ID)
-        .maybeSingle();
-
-      const txReq = supabase
+      const { data, error: txErr } = await supabase
         .from('transactions')
         .select('description, amount, type, date, status')
-        .eq('building_id', BUILDING_ID)
+        .eq('building_id', buildingId)
         .order('date', { ascending: false });
-
-      const [buildingRes, txRes] = await Promise.all([buildingReq, txReq]);
 
       if (cancelled) return;
 
-      if (buildingRes.error) {
-        setError(buildingRes.error.message);
-        setLoading(false);
-        return;
-      }
-      if (txRes.error) {
-        setError(txRes.error.message);
+      if (txErr) {
+        setError(txErr.message);
         setLoading(false);
         return;
       }
 
-      setBuilding(buildingRes.data);
-      setTransactions(txRes.data || []);
+      setTransactions(data || []);
       setLoading(false);
     }
 
@@ -73,7 +56,7 @@ function Fund() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [buildingId]);
 
   const balance = transactions.reduce((sum, t) => {
     const n = Number(t.amount) || 0;

@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from './supabase';
 
-const BUILDING_ID = 'c60437a0-fdf5-452f-ba22-337ab088559e';
-
 function formatMoney(amount) {
   const n = Number(amount);
   if (!Number.isFinite(n)) return '£0';
@@ -26,7 +24,7 @@ function shortJobTitle(voteTitle) {
   return idx > 0 ? voteTitle.slice(0, idx) : voteTitle;
 }
 
-function Quotes() {
+function Quotes({ buildingId }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [quotes, setQuotes] = useState([]);
@@ -42,7 +40,7 @@ function Quotes() {
       const { data: quotesData, error: qErr } = await supabase
         .from('quotes')
         .select('id, vote_id, company_name, price, description, rating, jobs_count, favour_count, status')
-        .eq('building_id', BUILDING_ID)
+        .eq('building_id', buildingId)
         .order('price', { ascending: true });
 
       if (cancelled) return;
@@ -63,6 +61,7 @@ function Quotes() {
         const { data: votesData, error: vErr } = await supabase
           .from('votes')
           .select('id, title')
+          .eq('building_id', buildingId)
           .in('id', voteIds);
 
         if (!cancelled && !vErr && votesData) {
@@ -81,7 +80,7 @@ function Quotes() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [buildingId]);
 
   const firstVoteId = quotes[0]?.vote_id;
   const sectionJobTitle = shortJobTitle(firstVoteId ? voteTitleById[firstVoteId] : '');

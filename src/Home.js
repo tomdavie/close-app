@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from './supabase';
 
-const BUILDING_ID = 'c60437a0-fdf5-452f-ba22-337ab088559e';
-
 function formatMoney(amount) {
   const n = Number(amount);
   if (!Number.isFinite(n)) return '£0';
@@ -58,7 +56,7 @@ function formatLongDate(dateStr) {
   return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
 }
 
-function Home() {
+function Home({ buildingId }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [transactions, setTransactions] = useState([]);
@@ -75,17 +73,17 @@ function Home() {
       const txReq = supabase
         .from('transactions')
         .select('amount, type')
-        .eq('building_id', BUILDING_ID);
+        .eq('building_id', buildingId);
 
       const ownersReq = supabase
         .from('owners')
         .select('name, flat, role, status, balance')
-        .eq('building_id', BUILDING_ID);
+        .eq('building_id', buildingId);
 
       const votesReq = supabase
         .from('votes')
         .select('id, title, yes_count, no_count, total_owners, status, closes_at, created_at')
-        .eq('building_id', BUILDING_ID);
+        .eq('building_id', buildingId);
 
       const [txRes, ownersRes, votesRes] = await Promise.all([txReq, ownersReq, votesReq]);
 
@@ -117,7 +115,7 @@ function Home() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [buildingId]);
 
   const balance = fundBalance(transactions);
   const totalOwners = owners.length;

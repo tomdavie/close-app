@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from './supabase';
 
-const BUILDING_ID = 'c60437a0-fdf5-452f-ba22-337ab088559e';
-
 function daysUntilClose(dateStr) {
   if (!dateStr) return null;
   const end = new Date(dateStr);
@@ -29,7 +27,7 @@ function formatClosedMeta(v) {
   return `${yes} yes · ${no} no · ${when}`;
 }
 
-function Votes() {
+function Votes({ buildingId }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [votes, setVotes] = useState([]);
@@ -44,7 +42,7 @@ function Votes() {
       const { data, error: err } = await supabase
         .from('votes')
         .select('id, title, yes_count, no_count, total_owners, status, closes_at')
-        .eq('building_id', BUILDING_ID);
+        .eq('building_id', buildingId);
 
       if (cancelled) return;
 
@@ -63,7 +61,7 @@ function Votes() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [buildingId]);
 
   const openVotes = votes
     .filter((v) => (v.status || '').toLowerCase() === 'open')

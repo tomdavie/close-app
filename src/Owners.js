@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from './supabase';
 
-const BUILDING_ID = 'c60437a0-fdf5-452f-ba22-337ab088559e';
-
 const AVATAR_STYLES = [
   { background: '#E0F2EC', color: '#0D4F42' },
   { background: '#F9EDE8', color: '#7A2E18' },
@@ -64,7 +62,7 @@ function sortOwners(rows) {
   });
 }
 
-function Owners() {
+function Owners({ buildingId }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [owners, setOwners] = useState([]);
@@ -79,7 +77,7 @@ function Owners() {
       const { data, error: err } = await supabase
         .from('owners')
         .select('id, name, flat, role, status, balance')
-        .eq('building_id', BUILDING_ID);
+        .eq('building_id', buildingId);
 
       if (cancelled) return;
 
@@ -98,7 +96,7 @@ function Owners() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [buildingId]);
 
   const overdueOwners = owners.filter((o) => (o.status || '').toLowerCase() === 'overdue');
   const primaryOverdue = overdueOwners[0];
