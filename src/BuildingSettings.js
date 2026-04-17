@@ -153,7 +153,8 @@ function BuildingSettings({ session, onBuildingUpdated, onLogout }) {
     setDisplayName(fromMeta || (ownerRow?.name && String(ownerRow.name).trim() ? ownerRow.name : ''));
 
     setPageLoading(false);
-  }, []);
+    await onBuildingUpdated?.();
+  }, [onBuildingUpdated]);
 
   useEffect(() => {
     reload();

@@ -76,11 +76,17 @@ function AuthShell({ authMode, setAuthMode }) {
   );
 }
 
+function topbarBuildingLine(b) {
+  if (!b) return '';
+  const addrLine = [b.address, b.postcode].filter(Boolean).join(', ').trim();
+  const name = (b.name || '').trim();
+  if (addrLine && name) return `${addrLine} · ${name}`;
+  return addrLine || name || '';
+}
+
 function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated }) {
   const [screen, setScreen] = useState('home');
-  const buildingLine = building
-    ? [building.name, [building.address, building.postcode].filter(Boolean).join(', ')].filter(Boolean).join(' · ')
-    : 'Your close';
+  const buildingLine = topbarBuildingLine(building) || 'Your close';
 
   return (
     <div className="app">
