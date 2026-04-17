@@ -870,6 +870,14 @@ body {
 .onboard-readonly {
   flex: 1;
   font-size: 12px;
+  cursor: default;
+  background: #faf8f5;
+  color: #513528;
+}
+
+.onboard-readonly:focus {
+  border-color: #e0d2c0;
+  box-shadow: none;
 }
 
 .onboard-copy-btn {
@@ -885,11 +893,26 @@ body {
   cursor: pointer;
 }
 
-.onboard-textarea {
-  resize: vertical;
-  min-height: 100px;
-  font-size: 13px;
-  line-height: 1.45;
+.onboard-wa-block {
+  margin-top: 6px;
+  padding: 14px 14px 12px;
+  border-radius: 12px;
+  border: 1px solid #e0d2c0;
+  background: #fffaf5;
+}
+
+.onboard-wa-para {
+  margin: 0;
+  font-family: 'Nunito', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.55;
+  color: #3f3126;
+  white-space: pre-line;
+}
+
+.onboard-wa-para + .onboard-wa-para {
+  margin-top: 14px;
 }
 
 .onboard-copy-wide {

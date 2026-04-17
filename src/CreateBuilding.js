@@ -127,7 +127,7 @@ Takes 2 minutes to set up.`
         <div className="onboard-kicker">Set up your close</div>
         <h1 className="onboard-title">Let&apos;s add your building</h1>
         <p className="onboard-sub">
-          A few quick steps — then you can invite neighbours and start running things calmly together.
+          A few quick steps, then you can invite neighbours and start managing things together.
         </p>
         <StepDots step={step} />
       </section>
@@ -248,7 +248,15 @@ Takes 2 minutes to set up.`
 
           <label className="auth-label">Invite link</label>
           <div className="onboard-copy-row">
-            <input readOnly className="auth-input onboard-readonly" value={inviteUrl} />
+            <input
+              key={buildingId || 'invite'}
+              readOnly
+              aria-readonly="true"
+              autoComplete="off"
+              spellCheck={false}
+              className="auth-input onboard-readonly"
+              defaultValue={inviteUrl}
+            />
             <button type="button" className="onboard-copy-btn" onClick={() => copyText('link', inviteUrl)}>
               {copied === 'link' ? 'Copied!' : 'Copy'}
             </button>
@@ -257,7 +265,15 @@ Takes 2 minutes to set up.`
           <label className="auth-label" style={{ marginTop: 18 }}>
             WhatsApp message
           </label>
-          <textarea readOnly className="auth-input onboard-textarea" rows={5} value={whatsappText} />
+          <div className="onboard-wa-block" aria-live="polite">
+            {whatsappText
+              ? whatsappText.split(/\n\n+/).map((block, i) => (
+                  <p key={i} className="onboard-wa-para">
+                    {block}
+                  </p>
+                ))
+              : null}
+          </div>
           <button type="button" className="onboard-copy-wide" onClick={() => copyText('wa', whatsappText)}>
             {copied === 'wa' ? 'Copied to clipboard' : 'Copy WhatsApp message'}
           </button>
