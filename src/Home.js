@@ -56,12 +56,57 @@ function formatLongDate(dateStr) {
   return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
 }
 
+function timeOfDayGreeting(now = new Date()) {
+  const h = now.getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function firstNameFromUser(user) {
+  if (!user) return null;
+  const full = user.user_metadata?.full_name;
+  if (typeof full === 'string' && full.trim()) {
+    const first = full.trim().split(/\s+/)[0];
+    if (first) return first;
+  }
+  const email = user.email;
+  if (typeof email === 'string' && email.includes('@')) {
+    const local = email.split('@')[0].replace(/[._-]+/g, ' ').trim();
+    const word = local.split(/\s+/)[0];
+    if (word) return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  }
+  return null;
+}
+
+function heroGreetingLine(user) {
+  const name = firstNameFromUser(user) || 'there';
+  return `${timeOfDayGreeting()}, ${name}`;
+}
+
 function Home({ buildingId }) {
+  const [authUser, setAuthUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [owners, setOwners] = useState([]);
   const [votes, setVotes] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase.auth.getUser().then(({ data }) => {
+      if (!cancelled) setAuthUser(data?.user ?? null);
+    });
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthUser(session?.user ?? null);
+    });
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -205,7 +250,7 @@ function Home({ buildingId }) {
     return (
       <main className="home">
         <section className="hero">
-          <div className="hero-eyebrow">Good morning, Tom</div>
+          <div className="hero-eyebrow">{heroGreetingLine(authUser)}</div>
           <div className="hero-title">Your close is running itself nicely.</div>
           <div className="hero-sub">Saving ~£1,200/year compared with a traditional factor</div>
         </section>
@@ -253,7 +298,7 @@ function Home({ buildingId }) {
   return (
     <main className="home">
       <section className="hero">
-        <div className="hero-eyebrow">Good morning, Tom</div>
+        <div className="hero-eyebrow">{heroGreetingLine(authUser)}</div>
         <div className="hero-title">Your close is running itself nicely.</div>
         <div className="hero-sub">Saving ~£1,200/year compared with a traditional factor</div>
       </section>

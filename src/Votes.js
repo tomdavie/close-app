@@ -27,6 +27,15 @@ function formatClosedMeta(v) {
   return `${yes} yes · ${no} no · ${when}`;
 }
 
+function datePlusDaysLocal(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function Votes({ buildingId }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -38,68 +47,147 @@ function Votes({ buildingId }) {
   const [voteErrorById, setVoteErrorById] = useState({});
   const thanksTimeoutsRef = useRef({});
 
-  const loadVotes = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const [showStartForm, setShowStartForm] = useState(false);
+  const [formTitle, setFormTitle] = useState('');
+  const [formDescription, setFormDescription] = useState('');
+  const [formCloseDate, setFormCloseDate] = useState(() => datePlusDaysLocal(7));
+  const [formSubmitting, setFormSubmitting] = useState(false);
+  const [formError, setFormError] = useState(null);
 
-    const { data: authData, error: authErr } = await supabase.auth.getUser();
-    if (authErr) {
-      setError(authErr.message);
-      setVotes([]);
-      setOwnerId(null);
-      setVotedVoteIds(new Set());
-      setLoading(false);
-      return;
-    }
-
-    const email = authData?.user?.email;
-    let oid = null;
-    if (email) {
-      const { data: ownerRow } = await supabase
-        .from('owners')
-        .select('id')
-        .eq('building_id', buildingId)
-        .eq('email', email)
-        .maybeSingle();
-      oid = ownerRow?.id ?? null;
-    }
-    setOwnerId(oid);
-
-    const { data: voteRows, error: vErr } = await supabase
-      .from('votes')
-      .select('id, title, yes_count, no_count, total_owners, status, closes_at')
-      .eq('building_id', buildingId);
-
-    if (vErr) {
-      setError(vErr.message);
-      setVotes([]);
-      setVotedVoteIds(new Set());
-      setLoading(false);
-      return;
-    }
-
-    const list = voteRows || [];
-    let voted = new Set();
-    if (oid && list.length > 0) {
-      const ids = list.map((v) => v.id);
-      const { data: ovs, error: ovErr } = await supabase
-        .from('owner_votes')
-        .select('vote_id')
-        .eq('owner_id', oid)
-        .in('vote_id', ids);
-      if (!ovErr && ovs?.length) {
-        voted = new Set(ovs.map((r) => r.vote_id));
+  const syncVoteData = useCallback(
+    async (withLoading) => {
+      if (withLoading) {
+        setLoading(true);
+        setError(null);
       }
-    }
 
-    setVotedVoteIds(voted);
-    setVotes(list);
-    setLoading(false);
-  }, [buildingId]);
+      const { data: authData, error: authErr } = await supabase.auth.getUser();
+      if (authErr) {
+        if (withLoading) {
+          setError(authErr.message);
+          setVotes([]);
+          setOwnerId(null);
+          setVotedVoteIds(new Set());
+          setLoading(false);
+        }
+        return false;
+      }
+
+      const email = authData?.user?.email;
+      let oid = null;
+      if (email) {
+        const { data: ownerRow } = await supabase
+          .from('owners')
+          .select('id')
+          .eq('building_id', buildingId)
+          .eq('email', email)
+          .maybeSingle();
+        oid = ownerRow?.id ?? null;
+      }
+      setOwnerId(oid);
+
+      const { data: voteRows, error: vErr } = await supabase
+        .from('votes')
+        .select('id, title, description, yes_count, no_count, total_owners, status, closes_at')
+        .eq('building_id', buildingId);
+
+      if (vErr) {
+        if (withLoading) {
+          setError(vErr.message);
+          setVotes([]);
+          setVotedVoteIds(new Set());
+          setLoading(false);
+        }
+        return false;
+      }
+
+      const list = voteRows || [];
+      let voted = new Set();
+      if (oid && list.length > 0) {
+        const ids = list.map((v) => v.id);
+        const { data: ovs, error: ovErr } = await supabase
+          .from('owner_votes')
+          .select('vote_id')
+          .eq('owner_id', oid)
+          .in('vote_id', ids);
+        if (!ovErr && ovs?.length) {
+          voted = new Set(ovs.map((r) => r.vote_id));
+        }
+      }
+
+      setVotedVoteIds(voted);
+      setVotes(list);
+      if (withLoading) {
+        setLoading(false);
+      }
+      return true;
+    },
+    [buildingId]
+  );
 
   useEffect(() => {
-    loadVotes();
-  }, [loadVotes]);
+    syncVoteData(true);
+  }, [syncVoteData]);
+
+  function resetStartForm() {
+    setFormTitle('');
+    setFormDescription('');
+    setFormCloseDate(datePlusDaysLocal(7));
+    setFormError(null);
+  }
+
+  function closeStartForm() {
+    setShowStartForm(false);
+    resetStartForm();
+  }
+
+  async function handleStartVote(e) {
+    e.preventDefault();
+    setFormError(null);
+    const title = formTitle.trim();
+    const desc = formDescription.trim();
+    if (!title) {
+      setFormError('Please enter a title for the vote.');
+      return;
+    }
+
+    setFormSubmitting(true);
+
+    const { count, error: countErr } = await supabase
+      .from('owners')
+      .select('id', { count: 'exact', head: true })
+      .eq('building_id', buildingId);
+
+    if (countErr) {
+      setFormSubmitting(false);
+      setFormError(countErr.message);
+      return;
+    }
+
+    const totalOwners = Math.max(0, count ?? 0);
+    const closesAt = `${formCloseDate}T23:59:59.000Z`;
+
+    const { error: insErr } = await supabase.from('votes').insert({
+      building_id: buildingId,
+      title,
+      description: desc || null,
+      yes_count: 0,
+      no_count: 0,
+      total_owners: totalOwners,
+      status: 'open',
+      closes_at: closesAt,
+    });
+
+    setFormSubmitting(false);
+
+    if (insErr) {
+      setFormError(insErr.message);
+      return;
+    }
+
+    await syncVoteData(false);
+    closeStartForm();
+  }
 
   useEffect(() => {
     const timeouts = thanksTimeoutsRef.current;
@@ -245,7 +333,78 @@ function Votes({ buildingId }) {
   return (
     <main className="home">
       <section className="home-section">
-        <div className="slabel">Open — needs your vote</div>
+        <div className="fund-section-head">
+          <div className="slabel">Open — needs your vote</div>
+          <button
+            type="button"
+            className="fund-add-btn"
+            onClick={() => {
+              if (showStartForm) {
+                closeStartForm();
+              } else {
+                resetStartForm();
+                setShowStartForm(true);
+              }
+            }}
+          >
+            {showStartForm ? 'Cancel' : 'Start a vote'}
+          </button>
+        </div>
+
+        {showStartForm && (
+          <div className="card fund-add-card">
+            <form className="fund-add-form" onSubmit={handleStartVote}>
+              <label className="auth-label" htmlFor="vote-start-title">
+                Title
+              </label>
+              <input
+                id="vote-start-title"
+                className="auth-input"
+                type="text"
+                value={formTitle}
+                onChange={(e) => setFormTitle(e.target.value)}
+                placeholder='e.g. Approve Henderson Plumbing for boiler repair — £320'
+                autoComplete="off"
+              />
+
+              <label className="auth-label" htmlFor="vote-start-desc">
+                Description
+              </label>
+              <input
+                id="vote-start-desc"
+                className="auth-input"
+                type="text"
+                value={formDescription}
+                onChange={(e) => setFormDescription(e.target.value)}
+                placeholder="What are owners being asked to decide?"
+                autoComplete="off"
+              />
+
+              <label className="auth-label" htmlFor="vote-start-close">
+                Closing date
+              </label>
+              <input
+                id="vote-start-close"
+                className="auth-input"
+                type="date"
+                value={formCloseDate}
+                onChange={(e) => setFormCloseDate(e.target.value)}
+              />
+
+              {formError && <div className="fund-form-error">{formError}</div>}
+
+              <div className="fund-form-actions">
+                <button type="button" className="fund-form-cancel" onClick={closeStartForm}>
+                  Cancel
+                </button>
+                <button type="submit" className="fund-form-submit" disabled={formSubmitting}>
+                  {formSubmitting ? 'Saving…' : 'Start vote'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
         {error ? (
           <div className="vote-card">
             <div className="vote-q">Could not load votes</div>
@@ -253,7 +412,7 @@ function Votes({ buildingId }) {
               <span>{error}</span>
             </div>
           </div>
-        ) : openVotes.length === 0 ? (
+        ) : openVotes.length === 0 && !showStartForm ? (
           <div className="vote-card">
             <div className="vote-q">No open votes right now.</div>
             <div className="vbar-wrap">
@@ -264,7 +423,7 @@ function Votes({ buildingId }) {
               <span>—</span>
             </div>
           </div>
-        ) : (
+        ) : openVotes.length > 0 ? (
           openVotes.map((v) => {
             const yes = Number(v.yes_count) || 0;
             const no = Number(v.no_count) || 0;
@@ -329,7 +488,7 @@ function Votes({ buildingId }) {
               </div>
             );
           })
-        )}
+        ) : null}
       </section>
 
       <section className="home-section">

@@ -563,6 +563,143 @@ body {
   font-weight: 600;
 }
 
+.fund-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.fund-section-head .slabel {
+  margin-bottom: 0;
+}
+
+.fund-add-btn {
+  flex-shrink: 0;
+  font-family: 'Nunito', sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #fff;
+  background: linear-gradient(140deg, #a5432d, #be5b3a 55%, #c16a46);
+  border: none;
+  padding: 8px 14px;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(165, 67, 45, 0.28);
+}
+
+.fund-add-btn:hover {
+  filter: brightness(1.04);
+}
+
+.fund-add-card {
+  margin-top: 10px;
+  padding: 14px 16px;
+  border: 1px solid #e8dbc9;
+  background: #fffaf2;
+}
+
+.fund-add-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.fund-add-form .auth-label {
+  margin-top: 12px;
+}
+
+.fund-add-form .auth-label:first-of-type {
+  margin-top: 0;
+}
+
+.fund-type-toggle {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.fund-type-btn {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #e0d2c0;
+  background: #fff;
+  font-family: 'Nunito', sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+  color: #888;
+  cursor: pointer;
+}
+
+.fund-type-btn-in-active {
+  background: var(--cl-teal-light);
+  border-color: var(--cl-teal);
+  color: var(--cl-teal-dark);
+}
+
+.fund-type-btn-out-active {
+  background: var(--cl-rust-light);
+  border-color: var(--cl-rust);
+  color: var(--cl-rust-dark);
+}
+
+.fund-form-error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f1d4c4;
+  border: 1px solid #ddb59f;
+  font-size: 13px;
+  font-weight: 600;
+  color: #7a2e18;
+}
+
+.fund-form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  align-items: stretch;
+}
+
+.fund-form-cancel {
+  flex: 0 0 auto;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid #e0d2c0;
+  background: #fffaf2;
+  color: #6f4e3e;
+  font-family: 'Nunito', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.fund-form-submit {
+  flex: 1;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(140deg, #a5432d, #be5b3a 55%, #c16a46);
+  color: #fff;
+  font-family: 'Nunito', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(165, 67, 45, 0.28);
+}
+
+.fund-form-submit:hover:not(:disabled) {
+  filter: brightness(1.04);
+}
+
+.fund-form-submit:disabled {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
 .tx-item {
   display: flex;
   gap: 10px;
@@ -650,6 +787,90 @@ body {
 
 .topbar-logout:hover {
   background: rgba(255, 255, 255, 0.26);
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.topbar-settings-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin: -6px -4px -6px 0;
+  padding: 0;
+  border: none;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.topbar-settings-btn:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+.topbar-settings-icon {
+  display: block;
+}
+
+.topbar-back-btn {
+  flex-shrink: 0;
+  font-family: 'Nunito', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  padding: 8px 14px;
+  border-radius: 20px;
+  cursor: pointer;
+}
+
+.topbar-back-btn:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+.settings-screen {
+  padding-bottom: 8px;
+}
+
+.settings-form-note {
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #5a7a5e;
+}
+
+.settings-sign-out-wrap {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e7d9c5;
+  display: flex;
+  justify-content: center;
+}
+
+.settings-sign-out {
+  font-family: 'Nunito', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: #9a8b7a;
+  background: transparent;
+  border: none;
+  padding: 12px 20px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.settings-sign-out:hover {
+  color: #7a2e18;
 }
 
 .topbar-auth-tagline {

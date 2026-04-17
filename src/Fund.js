@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { supabase } from './supabase';
 
 function formatMoney(amount) {
@@ -22,10 +22,42 @@ function isPendingStatus(status) {
   return (status || '').toLowerCase() === 'pending';
 }
 
+function todayInputValue() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function Fund({ buildingId, building }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [transactions, setTransactions] = useState([]);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [formDescription, setFormDescription] = useState('');
+  const [formAmount, setFormAmount] = useState('');
+  const [formType, setFormType] = useState('in');
+  const [formDate, setFormDate] = useState(() => todayInputValue());
+  const [formSubmitting, setFormSubmitting] = useState(false);
+  const [formError, setFormError] = useState(null);
+
+  const fetchTransactions = useCallback(async () => {
+    const { data, error: txErr } = await supabase
+      .from('transactions')
+      .select('description, amount, type, date, status')
+      .eq('building_id', buildingId)
+      .order('date', { ascending: false });
+
+    if (txErr) {
+      setError(txErr.message);
+      return false;
+    }
+
+    setTransactions(data || []);
+    setError(null);
+    return true;
+  }, [buildingId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,30 +65,68 @@ function Fund({ buildingId, building }) {
     async function load() {
       setLoading(true);
       setError(null);
-
-      const { data, error: txErr } = await supabase
-        .from('transactions')
-        .select('description, amount, type, date, status')
-        .eq('building_id', buildingId)
-        .order('date', { ascending: false });
-
-      if (cancelled) return;
-
-      if (txErr) {
-        setError(txErr.message);
+      const ok = await fetchTransactions();
+      if (!cancelled) {
+        if (!ok) setTransactions([]);
         setLoading(false);
-        return;
       }
-
-      setTransactions(data || []);
-      setLoading(false);
     }
 
     load();
     return () => {
       cancelled = true;
     };
-  }, [buildingId]);
+  }, [fetchTransactions]);
+
+  function resetAddForm() {
+    setFormDescription('');
+    setFormAmount('');
+    setFormType('in');
+    setFormDate(todayInputValue());
+    setFormError(null);
+  }
+
+  function closeAddForm() {
+    setShowAddForm(false);
+    resetAddForm();
+  }
+
+  async function handleAddTransaction(e) {
+    e.preventDefault();
+    setFormError(null);
+    const desc = formDescription.trim();
+    const amt = Number(formAmount);
+    if (!desc) {
+      setFormError('Please add a short description.');
+      return;
+    }
+    if (!Number.isFinite(amt) || amt <= 0) {
+      setFormError('Enter a valid amount greater than zero.');
+      return;
+    }
+
+    setFormSubmitting(true);
+    const dateIso = `${formDate}T12:00:00.000Z`;
+
+    const { error: insErr } = await supabase.from('transactions').insert({
+      building_id: buildingId,
+      description: desc,
+      amount: amt,
+      type: formType,
+      date: dateIso,
+      status: 'complete',
+    });
+
+    setFormSubmitting(false);
+
+    if (insErr) {
+      setFormError(insErr.message);
+      return;
+    }
+
+    await fetchTransactions();
+    closeAddForm();
+  }
 
   const balance = transactions.reduce((sum, t) => {
     const n = Number(t.amount) || 0;
@@ -116,13 +186,28 @@ function Fund({ buildingId, building }) {
   return (
     <main className="home">
       <section className="home-section">
-        <div className="slabel">Building fund</div>
+        <div className="fund-section-head">
+          <div className="slabel">Building fund</div>
+          <button
+            type="button"
+            className="fund-add-btn"
+            onClick={() => {
+              if (showAddForm) {
+                closeAddForm();
+              } else {
+                resetAddForm();
+                setShowAddForm(true);
+              }
+            }}
+          >
+            {showAddForm ? 'Cancel' : 'Add transaction'}
+          </button>
+        </div>
+
         <div className="card fund-card">
           <div className="fund-total">{error ? '—' : formatMoney(balance)}</div>
           <div className="fund-subline">
-            {error
-              ? error
-              : `of ${hasTarget ? formatMoney(targetFund) : '—'} annual target`}
+            {error ? error : `of ${hasTarget ? formatMoney(targetFund) : '—'} annual target`}
           </div>
           <div className="fbar-wrap">
             <div className="fbar" style={{ width: `${pct}%` }} />
@@ -135,6 +220,79 @@ function Fund({ buildingId, building }) {
                 }`}
           </div>
         </div>
+
+        {showAddForm && (
+          <div className="card fund-add-card">
+            <form className="fund-add-form" onSubmit={handleAddTransaction}>
+              <label className="auth-label" htmlFor="fund-tx-desc">
+                Description
+              </label>
+              <input
+                id="fund-tx-desc"
+                className="auth-input"
+                type="text"
+                value={formDescription}
+                onChange={(e) => setFormDescription(e.target.value)}
+                placeholder="e.g. April contributions"
+                autoComplete="off"
+              />
+
+              <label className="auth-label" htmlFor="fund-tx-amt">
+                Amount (£)
+              </label>
+              <input
+                id="fund-tx-amt"
+                className="auth-input"
+                type="number"
+                min={0.01}
+                step={0.01}
+                value={formAmount}
+                onChange={(e) => setFormAmount(e.target.value)}
+                placeholder="0.00"
+              />
+
+              <span className="auth-label">Type</span>
+              <div className="fund-type-toggle" role="group" aria-label="Transaction type">
+                <button
+                  type="button"
+                  className={`fund-type-btn ${formType === 'in' ? 'fund-type-btn-in-active' : ''}`}
+                  onClick={() => setFormType('in')}
+                >
+                  In
+                </button>
+                <button
+                  type="button"
+                  className={`fund-type-btn ${formType === 'out' ? 'fund-type-btn-out-active' : ''}`}
+                  onClick={() => setFormType('out')}
+                >
+                  Out
+                </button>
+              </div>
+
+              <label className="auth-label" htmlFor="fund-tx-date">
+                Date
+              </label>
+              <input
+                id="fund-tx-date"
+                className="auth-input"
+                type="date"
+                value={formDate}
+                onChange={(e) => setFormDate(e.target.value)}
+              />
+
+              {formError && <div className="fund-form-error">{formError}</div>}
+
+              <div className="fund-form-actions">
+                <button type="button" className="fund-form-cancel" onClick={closeAddForm}>
+                  Cancel
+                </button>
+                <button type="submit" className="fund-form-submit" disabled={formSubmitting}>
+                  {formSubmitting ? 'Saving…' : 'Save transaction'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
       </section>
 
       <section className="mgrid">
@@ -165,7 +323,7 @@ function Fund({ buildingId, building }) {
               const isIn = t.type === 'in';
               const amt = Number(t.amount) || 0;
               return (
-                <div className="tx-item" key={i}>
+                <div className="tx-item" key={`${t.date}-${t.description}-${i}`}>
                   <div className={`tx-icon ${isIn ? 'tx-icon-in' : 'tx-icon-out'}`}>
                     {isIn ? '↓' : '↑'}
                   </div>

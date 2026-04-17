@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 import './App.css';
 import { supabase } from './supabase';
@@ -7,6 +7,7 @@ import Owners from './Owners';
 import Votes from './Votes';
 import Quotes from './Quotes';
 import Fund from './Fund';
+import BuildingSettings from './BuildingSettings';
 import Login from './Login';
 import SignUp from './SignUp';
 import CreateBuilding from './CreateBuilding';
@@ -74,10 +75,30 @@ function AuthShell({ authMode, setAuthMode }) {
   );
 }
 
-function MainShell({ session, onLogout, buildingId, building }) {
+function SettingsGearIcon() {
+  return (
+    <svg
+      className="topbar-settings-icon"
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+    </svg>
+  );
+}
+
+function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated }) {
   const [screen, setScreen] = useState('home');
   const buildingLine = building
-    ? [building.address, building.postcode].filter(Boolean).join(', ')
+    ? [building.name, [building.address, building.postcode].filter(Boolean).join(', ')].filter(Boolean).join(' · ')
     : 'Your close';
 
   return (
@@ -87,34 +108,58 @@ function MainShell({ session, onLogout, buildingId, building }) {
           <div className="wordmark">
             Cl<em>ō</em>se
           </div>
-          <button type="button" className="topbar-logout" onClick={onLogout}>
-            Log out
-          </button>
+          <div className="topbar-actions">
+            {screen === 'settings' ? (
+              <button type="button" className="topbar-back-btn" onClick={() => setScreen('home')}>
+                ← Back
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="topbar-settings-btn"
+                aria-label="Building settings"
+                onClick={() => setScreen('settings')}
+              >
+                <SettingsGearIcon />
+              </button>
+            )}
+          </div>
         </div>
         <div className="topbar-user">{displayNameFromSession(session)}</div>
         <div className="topbar-building">{buildingLine}</div>
         <span className="topbar-tag">Self-factored · 6 owners</span>
       </div>
 
-      <div className="nav">
-        <button className={screen === 'home' ? 'nav-item active' : 'nav-item'} onClick={() => setScreen('home')}>
-          ⌂ Home
-        </button>
-        <button className={screen === 'owners' ? 'nav-item active' : 'nav-item'} onClick={() => setScreen('owners')}>
-          ◎ Owners
-        </button>
-        <button className={screen === 'votes' ? 'nav-item active' : 'nav-item'} onClick={() => setScreen('votes')}>
-          ✓ Votes
-        </button>
-        <button className={screen === 'quotes' ? 'nav-item active' : 'nav-item'} onClick={() => setScreen('quotes')}>
-          £ Quotes
-        </button>
-        <button className={screen === 'fund' ? 'nav-item active' : 'nav-item'} onClick={() => setScreen('fund')}>
-          ◈ Fund
-        </button>
-      </div>
+      {screen !== 'settings' && (
+        <div className="nav">
+          <button className={screen === 'home' ? 'nav-item active' : 'nav-item'} onClick={() => setScreen('home')}>
+            ⌂ Home
+          </button>
+          <button className={screen === 'owners' ? 'nav-item active' : 'nav-item'} onClick={() => setScreen('owners')}>
+            ◎ Owners
+          </button>
+          <button className={screen === 'votes' ? 'nav-item active' : 'nav-item'} onClick={() => setScreen('votes')}>
+            ✓ Votes
+          </button>
+          <button className={screen === 'quotes' ? 'nav-item active' : 'nav-item'} onClick={() => setScreen('quotes')}>
+            £ Quotes
+          </button>
+          <button className={screen === 'fund' ? 'nav-item active' : 'nav-item'} onClick={() => setScreen('fund')}>
+            ◈ Fund
+          </button>
+        </div>
+      )}
 
       <div className="content">
+        {screen === 'settings' && (
+          <BuildingSettings
+            session={session}
+            buildingId={buildingId}
+            building={building}
+            onBuildingUpdated={onBuildingUpdated}
+            onLogout={onLogout}
+          />
+        )}
         {screen === 'home' && <Home buildingId={buildingId} />}
         {screen === 'owners' && <Owners buildingId={buildingId} />}
         {screen === 'votes' && <Votes buildingId={buildingId} />}
@@ -138,6 +183,16 @@ function MainAppRoute({ session, authLoading, authMode, setAuthMode, onLogout })
   const [gateLoading, setGateLoading] = useState(true);
   const [buildingId, setBuildingId] = useState(null);
   const [building, setBuilding] = useState(null);
+
+  const refreshBuilding = useCallback(async () => {
+    if (!buildingId) return;
+    const { data } = await supabase
+      .from('buildings')
+      .select('id, address, postcode, target_fund, name, floor_count, approx_flat_count')
+      .eq('id', buildingId)
+      .maybeSingle();
+    if (data) setBuilding(data);
+  }, [buildingId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -174,7 +229,7 @@ function MainAppRoute({ session, authLoading, authMode, setAuthMode, onLogout })
 
       const { data: bRow } = await supabase
         .from('buildings')
-        .select('id, address, postcode, target_fund, name')
+        .select('id, address, postcode, target_fund, name, floor_count, approx_flat_count')
         .eq('id', bid)
         .maybeSingle();
 
@@ -207,7 +262,15 @@ function MainAppRoute({ session, authLoading, authMode, setAuthMode, onLogout })
     );
   }
 
-  return <MainShell session={session} onLogout={onLogout} buildingId={buildingId} building={building} />;
+  return (
+    <MainShell
+      session={session}
+      onLogout={onLogout}
+      buildingId={buildingId}
+      building={building}
+      onBuildingUpdated={refreshBuilding}
+    />
+  );
 }
 
 function App() {
