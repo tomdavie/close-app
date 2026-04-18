@@ -100,7 +100,7 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick, onOpenFund, onOpenOw
   const [votes, setVotes] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [targetFund, setTargetFund] = useState(null);
-  const [contributionTag, setContributionTag] = useState('Contribution settings not set');
+  const [contributionTag, setContributionTag] = useState('Live from transactions');
   const [isAdmin, setIsAdmin] = useState(false);
   const [ownerId, setOwnerId] = useState(null);
   const [votedVoteIds, setVotedVoteIds] = useState(() => new Set());
@@ -124,6 +124,18 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick, onOpenFund, onOpenOw
 
   useEffect(() => {
     let cancelled = false;
+
+    if (!buildingId) {
+      setLoading(false);
+      setTransactions([]);
+      setOwners([]);
+      setVotes([]);
+      setJobs([]);
+      setTargetFund(null);
+      setContributionTag('Live from transactions');
+      setError(null);
+      return undefined;
+    }
 
     async function load() {
       setLoading(true);
@@ -149,25 +161,7 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick, onOpenFund, onOpenOw
         .select('id, title, urgency, status')
         .eq('building_id', buildingId);
 
-      const buildingReq = supabase
-        .from('buildings')
-        .select('target_fund, contribution_amount, contribution_frequency, contribution_next_due_date')
-        .eq('id', buildingId)
-        .maybeSingle();
-      const contributionsReq = supabase
-        .from('contributions')
-        .select('owner_id, status, period_label')
-        .eq('building_id', buildingId)
-        .limit(800);
-
-      const [txRes, ownersRes, votesRes, jobsRes, buildingRes, contribRes] = await Promise.all([
-        txReq,
-        ownersReq,
-        votesReq,
-        jobsReq,
-        buildingReq,
-        contributionsReq,
-      ]);
+      const [txRes, ownersRes, votesRes, jobsRes] = await Promise.all([txReq, ownersReq, votesReq, jobsReq]);
 
       if (cancelled) return;
 
@@ -185,36 +179,55 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick, onOpenFund, onOpenOw
         }
         return;
       }
-      if (votesRes.error) {
-        if (!cancelled) {
-          setError(votesRes.error.message);
-          setLoading(false);
+
+      let buildingRow = null;
+      let buildingExtras = { contribution_amount: null, contribution_frequency: null, contribution_next_due_date: null };
+      const fullBuilding = await supabase
+        .from('buildings')
+        .select('target_fund, contribution_amount, contribution_frequency, contribution_next_due_date')
+        .eq('id', buildingId)
+        .maybeSingle();
+      if (fullBuilding.error) {
+        const msg = fullBuilding.error.message || '';
+        const missingCols =
+          fullBuilding.error.code === '42703' || /column .* does not exist/i.test(msg);
+        if (missingCols) {
+          const minimal = await supabase.from('buildings').select('target_fund').eq('id', buildingId).maybeSingle();
+          if (minimal.error) {
+            if (!cancelled) {
+              setError(minimal.error.message);
+              setLoading(false);
+            }
+            return;
+          }
+          buildingRow = minimal.data || null;
+        } else {
+          if (!cancelled) {
+            setError(fullBuilding.error.message);
+            setLoading(false);
+          }
+          return;
         }
-        return;
-      }
-      if (jobsRes.error) {
-        if (!cancelled) {
-          setError(jobsRes.error.message);
-          setLoading(false);
-        }
-        return;
-      }
-      if (buildingRes.error) {
-        if (!cancelled) {
-          setError(buildingRes.error.message);
-          setLoading(false);
-        }
-        return;
-      }
-      if (contribRes.error && contribRes.error.code !== '42P01') {
-        if (!cancelled) {
-          setError(contribRes.error.message);
-          setLoading(false);
-        }
-        return;
+      } else {
+        buildingRow = fullBuilding.data || null;
+        buildingExtras = {
+          contribution_amount: fullBuilding.data?.contribution_amount ?? null,
+          contribution_frequency: fullBuilding.data?.contribution_frequency ?? null,
+          contribution_next_due_date: fullBuilding.data?.contribution_next_due_date ?? null,
+        };
       }
 
-      const voteList = votesRes.data || [];
+      let contribRows = [];
+      const contribRes = await supabase
+        .from('contributions')
+        .select('owner_id, status, period_label')
+        .eq('building_id', buildingId)
+        .limit(800);
+      if (!contribRes.error) {
+        contribRows = contribRes.data || [];
+      }
+
+      const voteList = votesRes.error ? [] : votesRes.data || [];
       const ownerList = ownersRes.data || [];
       const { data: authData } = await supabase.auth.getUser();
       if (cancelled) return;
@@ -246,31 +259,34 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick, onOpenFund, onOpenOw
 
       if (cancelled) return;
 
-      const periodDue = toDateOnly(buildingRes.data?.contribution_next_due_date);
-      const periodFrequency = buildingRes.data?.contribution_frequency || 'quarterly';
+      const periodDue = toDateOnly(buildingExtras.contribution_next_due_date);
+      const periodFrequency = buildingExtras.contribution_frequency || 'quarterly';
       const periodLabel = periodDue ? periodLabelForDate(periodDue, periodFrequency) : '';
+      const scheduleSet =
+        !!periodDue &&
+        Number.isFinite(Number(buildingExtras.contribution_amount)) &&
+        Number(buildingExtras.contribution_amount) > 0;
+
       const activeOwnerIds = new Set(
-        ownerList
-          .filter((o) => !['removed', 'invited', 'invite_sent', 'pending'].includes((o.status || '').toLowerCase()))
-          .map((o) => o.id)
-          .filter(Boolean)
+        ownerList.filter((o) => (o.status || '').toLowerCase() === 'active').map((o) => o.id).filter(Boolean)
       );
-      if (!periodLabel) {
-        setContributionTag('Contribution settings not set');
+
+      if (!scheduleSet || !periodLabel) {
+        setContributionTag('Live from transactions');
       } else {
-        const contribRows = (contribRes.data || []).filter(
+        const periodContribs = contribRows.filter(
           (r) => r.period_label === periodLabel && activeOwnerIds.has(r.owner_id)
         );
-        const paidCount = contribRows.filter((r) => (r.status || '').toLowerCase() === 'paid').length;
-        const totalContribOwners = contribRows.length || activeOwnerIds.size;
+        const paidCount = periodContribs.filter((r) => (r.status || '').toLowerCase() === 'paid').length;
+        const totalContribOwners = periodContribs.length || activeOwnerIds.size;
         setContributionTag(`${paidCount} of ${totalContribOwners} paid ${periodDescriptor(periodFrequency)}`);
       }
 
       setTransactions(txRes.data || []);
       setOwners(ownerList);
       setVotes(voteList);
-      setJobs(jobsRes.data || []);
-      setTargetFund(buildingRes.data?.target_fund ?? null);
+      setJobs(jobsRes.error ? [] : jobsRes.data || []);
+      setTargetFund(buildingRow?.target_fund ?? null);
       setIsAdmin(meRole === 'admin');
       setOwnerId(oid);
       setVotedVoteIds(voted);
@@ -286,10 +302,10 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick, onOpenFund, onOpenOw
 
   const balance = fundBalance(transactions);
   const totalOwners = owners.length;
+  const activeOwnersCount = owners.filter((o) => (o.status || '').toLowerCase() === 'active').length;
   const invitePending = owners.filter((o) =>
     ['invited', 'invite_sent', 'pending'].includes((o.status || '').toLowerCase())
   ).length;
-  const activeCount = Math.max(0, totalOwners - invitePending);
 
   const openVotes = votes.filter((v) => (v.status || '').toLowerCase() === 'open');
   const openVotesSorted = [...openVotes].sort(
@@ -541,9 +557,7 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick, onOpenFund, onOpenOw
               +
             </button>
           )}
-          <div className="metric-val">
-            {error ? '—' : totalOwners ? `${activeCount}/${totalOwners}` : '—'}
-          </div>
+          <div className="metric-val">{error ? '—' : String(activeOwnersCount)}</div>
           <div className="metric-label">Owners active</div>
           <div className="metric-tag">
             {error || !totalOwners
