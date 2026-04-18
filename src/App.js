@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Routes, Route, useNavigate, useParams } from 'react-router-dom';
+import { Routes, Route, useNavigate, useParams, Link } from 'react-router-dom';
 import './App.css';
 import { supabase } from './supabase';
 import Home from './Home';
@@ -13,6 +13,10 @@ import Login from './Login';
 import SignUp from './SignUp';
 import CreateBuilding from './CreateBuilding';
 import JoinBuilding, { JoinAuthScreen } from './JoinBuilding';
+import Landing from './Landing';
+import FeasibilityCheck from './FeasibilityCheck';
+import InterestPage from './InterestPage';
+import Organising from './Organising';
 import { sendContributionDueSoonNotifications } from './contributions';
 
 function LoadingShell() {
@@ -55,22 +59,28 @@ function SetupTopbar({ session, onLogout }) {
   );
 }
 
-function AuthShell({ authMode, setAuthMode }) {
+function AuthScreenPage({ session, mode }) {
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (session) navigate('/', { replace: true });
+  }, [session, navigate]);
+
   return (
-    <div className="app">
-      <div className="topbar">
-        <div className="topbar-row">
-          <div className="wordmark">
-            Cl<em>ō</em>se
-          </div>
-        </div>
-        <p className="topbar-auth-tagline">Your building, your rules.</p>
-      </div>
-      <div className="content content-auth">
-        {authMode === 'login' ? (
-          <Login onSwitchToSignUp={() => setAuthMode('signup')} />
+    <div className="app landing-app">
+      <header className="landing-auth-header">
+        <Link to="/" className="landing-wordmark landing-wordmark-link" aria-label="Clōse home">
+          Cl<em>ō</em>se
+        </Link>
+      </header>
+      <div className="content content-auth landing-auth-inner">
+        {mode === 'login' ? (
+          <Login
+            onSwitchToSignUp={() => navigate('/signup')}
+            introTitle="Welcome back"
+            introLede="Sign in to pick up where you left off with your close."
+          />
         ) : (
-          <SignUp onSwitchToLogin={() => setAuthMode('login')} />
+          <SignUp onSwitchToLogin={() => navigate('/login')} />
         )}
       </div>
     </div>
@@ -588,21 +598,34 @@ function JoinRoute({ session, authLoading }) {
   return <JoinBuilding session={session} />;
 }
 
-function MainAppRoute({ session, authLoading, authMode, setAuthMode, onLogout }) {
+function MainAppRoute({ session, authLoading, onLogout }) {
   const navigate = useNavigate();
   const [gateLoading, setGateLoading] = useState(true);
   const [buildingId, setBuildingId] = useState(null);
   const [building, setBuilding] = useState(null);
 
-  const refreshBuilding = useCallback(async () => {
-    if (!buildingId) return;
-    const { data } = await supabase
+  const loadBuildingForUser = useCallback(async (user) => {
+    const bid = user?.user_metadata?.building_id;
+    if (!bid) {
+      setBuildingId(null);
+      setBuilding(null);
+      return;
+    }
+    setBuildingId(bid);
+    const { data: bRow } = await supabase
       .from('buildings')
-      .select('id, address, postcode, target_fund, name, floor_count, approx_flat_count')
-      .eq('id', buildingId)
+      .select('id, address, postcode, target_fund, name, floor_count, approx_flat_count, status')
+      .eq('id', bid)
       .maybeSingle();
-    if (data) setBuilding(data);
-  }, [buildingId]);
+    setBuilding(bRow);
+  }, []);
+
+  const refreshBuilding = useCallback(async () => {
+    const { data: authData } = await supabase.auth.getUser();
+    const user = authData?.user;
+    if (!user) return;
+    await loadBuildingForUser(user);
+  }, [loadBuildingForUser]);
 
   useEffect(() => {
     let cancelled = false;
@@ -627,24 +650,9 @@ function MainAppRoute({ session, authLoading, authMode, setAuthMode, onLogout })
         return;
       }
 
-      const bid = authData.user.user_metadata?.building_id;
-      if (!bid) {
-        setBuildingId(null);
-        setBuilding(null);
-        setGateLoading(false);
-        return;
-      }
-
-      setBuildingId(bid);
-
-      const { data: bRow } = await supabase
-        .from('buildings')
-        .select('id, address, postcode, target_fund, name, floor_count, approx_flat_count')
-        .eq('id', bid)
-        .maybeSingle();
+      await loadBuildingForUser(authData.user);
 
       if (!cancelled) {
-        setBuilding(bRow);
         setGateLoading(false);
       }
     })();
@@ -652,11 +660,11 @@ function MainAppRoute({ session, authLoading, authMode, setAuthMode, onLogout })
     return () => {
       cancelled = true;
     };
-  }, [session]);
+  }, [session, loadBuildingForUser]);
 
   if (authLoading) return <LoadingShell />;
   if (!session) {
-    return <AuthShell authMode={authMode} setAuthMode={setAuthMode} />;
+    return <Landing />;
   }
 
   if (gateLoading) return <LoadingShell />;
@@ -669,6 +677,18 @@ function MainAppRoute({ session, authLoading, authMode, setAuthMode, onLogout })
           <CreateBuilding session={session} onFinished={() => navigate('/', { replace: true })} />
         </div>
       </div>
+    );
+  }
+
+  const buildingStatus = (building?.status || 'live').toLowerCase();
+  if (buildingStatus === 'organising') {
+    return (
+      <Organising
+        buildingId={buildingId}
+        building={building}
+        onLogout={onLogout}
+        onEnteredLive={refreshBuilding}
+      />
     );
   }
 
@@ -686,7 +706,6 @@ function MainAppRoute({ session, authLoading, authMode, setAuthMode, onLogout })
 function App() {
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [authMode, setAuthMode] = useState('login');
 
   const repairOwnerUserLink = useCallback(async (authUser) => {
     const user = authUser || null;
@@ -730,25 +749,19 @@ function App() {
 
   async function handleLogout() {
     await supabase.auth.signOut();
-    setAuthMode('login');
   }
 
   return (
     <Routes>
-      <Route
-        path="/join/:buildingId"
-        element={<JoinRoute session={session} authLoading={authLoading} />}
-      />
+      <Route path="/feasibility" element={<FeasibilityCheck />} />
+      <Route path="/interest/:buildingId" element={<InterestPage />} />
+      <Route path="/login" element={<AuthScreenPage session={session} mode="login" />} />
+      <Route path="/signup" element={<AuthScreenPage session={session} mode="signup" />} />
+      <Route path="/join/:buildingId" element={<JoinRoute session={session} authLoading={authLoading} />} />
       <Route
         path="*"
         element={
-          <MainAppRoute
-            session={session}
-            authLoading={authLoading}
-            authMode={authMode}
-            setAuthMode={setAuthMode}
-            onLogout={handleLogout}
-          />
+          <MainAppRoute session={session} authLoading={authLoading} onLogout={handleLogout} />
         }
       />
     </Routes>

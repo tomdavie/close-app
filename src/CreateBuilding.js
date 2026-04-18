@@ -59,6 +59,7 @@ Takes 2 minutes to set up.`
       .insert({
         address: a,
         postcode: pc,
+        status: 'organising',
       })
       .select('id')
       .single();
