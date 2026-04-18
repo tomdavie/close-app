@@ -608,24 +608,13 @@ function Votes({ buildingId, focusVoteId, onVoteFocusConsumed }) {
             return (
               <div key={v.id} id={`vote-card-${v.id}`} className={`vote-card${focused ? ' vote-card--highlight' : ''}`}>
                 {longDesc ? (
-                  <div
-                    className="vote-card-tap"
-                    role="button"
-                    tabIndex={0}
-                    aria-expanded={descExpanded}
-                    onClick={() => toggleVoteDescExpanded(v.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        toggleVoteDescExpanded(v.id);
-                      }
-                    }}
-                  >
+                  <div className="vote-card-tap" onClick={() => toggleVoteDescExpanded(v.id)}>
                     <div className="vote-q">{v.title}</div>
                     <p className={descClamp ? 'vote-desc vote-desc--clamp' : 'vote-desc'}>{descRaw}</p>
                     <button
                       type="button"
                       className="vote-desc-toggle"
+                      aria-expanded={descExpanded}
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleVoteDescExpanded(v.id);
@@ -741,24 +730,13 @@ function Votes({ buildingId, focusVoteId, onVoteFocusConsumed }) {
               <div key={v.id} id={`vote-card-${v.id}`} className={`vote-card${focused ? ' vote-card--highlight' : ''}`}>
                 <div className={`closed-vote-head${longDesc ? ' closed-vote-head--top' : ''}`}>
                   {longDesc ? (
-                    <div
-                      className="vote-card-tap closed-vote-tap"
-                      role="button"
-                      tabIndex={0}
-                      aria-expanded={descExpanded}
-                      onClick={() => toggleVoteDescExpanded(v.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          toggleVoteDescExpanded(v.id);
-                        }
-                      }}
-                    >
+                    <div className="vote-card-tap closed-vote-tap" onClick={() => toggleVoteDescExpanded(v.id)}>
                       <div className="vote-q closed-vote-title">{v.title}</div>
                       <p className={descClamp ? 'vote-desc vote-desc--clamp' : 'vote-desc'}>{descRaw}</p>
                       <button
                         type="button"
                         className="vote-desc-toggle"
+                        aria-expanded={descExpanded}
                         onClick={(e) => {
                           e.stopPropagation();
                           toggleVoteDescExpanded(v.id);

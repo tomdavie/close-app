@@ -297,6 +297,8 @@ function Quotes({ buildingId }) {
 
   useEffect(() => {
     setAutoVoteBanner('');
+    setQuoteError(null);
+    setVoteError(null);
   }, [selectedJobId]);
 
   useEffect(() => {
@@ -339,6 +341,53 @@ function Quotes({ buildingId }) {
     await loadData(false);
   }
 
+  async function createJobVote(job, chosenQuote) {
+    if (!job || !chosenQuote?.id) return { ok: false, message: 'Missing job or quote.' };
+    if (job.vote_id) return { ok: false, message: 'This job already has a vote.' };
+    const st = (job.status || '').toLowerCase();
+    if (st === 'voting') return { ok: false, message: 'This job is already in a vote.' };
+
+    const { count, error: countErr } = await supabase
+      .from('owners')
+      .select('id', { count: 'exact', head: true })
+      .eq('building_id', buildingId);
+
+    if (countErr) return { ok: false, message: countErr.message };
+
+    const closeDate = plusDaysIso(7);
+    const closesAt = `${closeDate}T23:59:59.000Z`;
+    const title = `Approve ${chosenQuote.company_name} for ${job.title} — ${formatMoney(chosenQuote.price)}`;
+    const description = chosenQuote.description || job.description || null;
+
+    const { data: voteRow, error: voteErr } = await supabase
+      .from('votes')
+      .insert({
+        building_id: buildingId,
+        job_id: job.id,
+        quote_id: chosenQuote.id,
+        title,
+        description,
+        yes_count: 0,
+        no_count: 0,
+        total_owners: Math.max(0, count ?? 0),
+        status: 'open',
+        closes_at: closesAt,
+      })
+      .select('id')
+      .single();
+
+    if (voteErr || !voteRow) return { ok: false, message: voteErr?.message || 'Could not create vote.' };
+
+    const { error: jobErr } = await supabase
+      .from('jobs')
+      .update({ status: 'voting', vote_id: voteRow.id })
+      .eq('id', job.id);
+
+    if (jobErr) return { ok: false, message: jobErr.message };
+
+    return { ok: true };
+  }
+
   async function submitNewQuote(e) {
     e.preventDefault();
     if (!selectedJob) return;
@@ -347,8 +396,8 @@ function Quotes({ buildingId }) {
     const company = quoteCompany.trim();
     const price = Number(quotePrice);
     const desc = quoteDescription.trim();
-    const rating = Number(quoteRating);
-    const availability = quoteAvailability.trim();
+    const rating = parseInt(quoteRating, 10);
+    const firstDate = (quoteFirstDate || '').trim();
 
     if (!company) {
       setQuoteError('Please add the company name.');
@@ -359,7 +408,11 @@ function Quotes({ buildingId }) {
       return;
     }
     if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
-      setQuoteError('Rating must be between 1 and 5.');
+      setQuoteError('Please choose a rating from 1 to 5.');
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(firstDate)) {
+      setQuoteError('Please pick a first availability date.');
       return;
     }
 
@@ -371,25 +424,58 @@ function Quotes({ buildingId }) {
       price,
       description: desc || null,
       rating,
-      availability: availability || null,
+      availability: firstDate,
       status: 'submitted',
       created_at: new Date().toISOString(),
     });
     if (!insErr && (selectedJob.status || '').toLowerCase() === 'open') {
       await supabase.from('jobs').update({ status: 'quotes_requested' }).eq('id', selectedJob.id);
     }
-    setQuoteSubmitting(false);
 
     if (insErr) {
+      setQuoteSubmitting(false);
       setQuoteError(insErr.message);
       return;
     }
 
+    const { data: qList, error: listErr } = await supabase
+      .from('quotes')
+      .select('id, company_name, price, description')
+      .eq('job_id', selectedJob.id)
+      .eq('building_id', buildingId)
+      .order('price', { ascending: true });
+
+    const { data: jobFresh, error: jobFreshErr } = await supabase
+      .from('jobs')
+      .select('id, title, description, status, vote_id')
+      .eq('id', selectedJob.id)
+      .maybeSingle();
+
+    if (!listErr && !jobFreshErr && (qList || []).length === 3) {
+      const jst = (jobFresh?.status || '').toLowerCase();
+      if (jst !== 'voting' && !jobFresh?.vote_id) {
+        const chosen = qList[0];
+        const voteRes = await createJobVote(
+          {
+            id: selectedJob.id,
+            title: jobFresh?.title ?? selectedJob.title,
+            description: jobFresh?.description ?? selectedJob.description,
+            status: jobFresh?.status,
+            vote_id: jobFresh?.vote_id,
+          },
+          chosen
+        );
+        if (voteRes.ok) setAutoVoteBanner('3 quotes received - vote started automatically');
+        else setQuoteError(voteRes.message);
+      }
+    }
+
+    setQuoteSubmitting(false);
     setQuoteCompany('');
     setQuotePrice('');
     setQuoteDescription('');
     setQuoteRating('4');
-    setQuoteAvailability('');
+    setQuoteFirstDate(plusDaysIso(0));
     setShowQuoteForm(false);
     await loadData(false);
   }
@@ -405,53 +491,11 @@ function Quotes({ buildingId }) {
     }
 
     setVoteSubmitting(true);
-    const { count, error: countErr } = await supabase
-      .from('owners')
-      .select('id', { count: 'exact', head: true })
-      .eq('building_id', buildingId);
-
-    if (countErr) {
-      setVoteSubmitting(false);
-      setVoteError(countErr.message);
-      return;
-    }
-
-    const closeDate = plusDaysIso(7);
-    const closesAt = `${closeDate}T23:59:59.000Z`;
-    const title = `Approve ${chosen.company_name} for ${selectedJob.title} — ${formatMoney(chosen.price)}`;
-    const description = chosen.description || selectedJob.description || null;
-
-    const { data: voteRow, error: voteErr } = await supabase
-      .from('votes')
-      .insert({
-        building_id: buildingId,
-        job_id: selectedJob.id,
-        quote_id: chosen.id,
-        title,
-        description,
-        yes_count: 0,
-        no_count: 0,
-        total_owners: Math.max(0, count ?? 0),
-        status: 'open',
-        closes_at: closesAt,
-      })
-      .select('id')
-      .single();
-
-    if (voteErr || !voteRow) {
-      setVoteSubmitting(false);
-      setVoteError(voteErr?.message || 'Could not create vote.');
-      return;
-    }
-
-    const { error: jobErr } = await supabase
-      .from('jobs')
-      .update({ status: 'voting', vote_id: voteRow.id })
-      .eq('id', selectedJob.id);
+    const result = await createJobVote(selectedJob, chosen);
     setVoteSubmitting(false);
 
-    if (jobErr) {
-      setVoteError(jobErr.message);
+    if (!result.ok) {
+      setVoteError(result.message);
       return;
     }
 
@@ -537,11 +581,13 @@ function Quotes({ buildingId }) {
             </div>
             <div className="q-detail">{selectedJob.description || 'No description provided.'}</div>
             <div className="q-support">Status: {statusText}</div>
+            {autoVoteBanner && <div className="quotes-auto-vote-notice">{autoVoteBanner}</div>}
             {selectedJobVote && (
               <div className="q-support">
                 Vote: {selectedJobVote.title} ({selectedJobVote.status})
               </div>
             )}
+            {quoteError && <div className="fund-form-error quotes-job-msg">{quoteError}</div>}
             {completeError && <div className="fund-form-error">{completeError}</div>}
             {isAdmin && jobSt === 'accepted' && (
               <div className="quotes-mark-complete-wrap">
@@ -614,33 +660,23 @@ function Quotes({ buildingId }) {
                   onChange={(e) => setQuoteDescription(e.target.value)}
                 />
 
-                <label className="auth-label" htmlFor="quote-rating">
-                  Rating (1-5)
+                <div className="auth-label-stack">
+                  <label className="auth-label">Our rating of this tradesperson</label>
+                  <p className="auth-label-sub">Based on past work or online reviews</p>
+                </div>
+                <QuoteStarRatingInput value={quoteRating} onChange={setQuoteRating} />
+
+                <label className="auth-label" htmlFor="quote-first-date">
+                  First availability
                 </label>
                 <input
-                  id="quote-rating"
+                  id="quote-first-date"
                   className="auth-input"
-                  type="number"
-                  min={1}
-                  max={5}
-                  step={1}
-                  value={quoteRating}
-                  onChange={(e) => setQuoteRating(e.target.value)}
+                  type="date"
+                  value={quoteFirstDate}
+                  min={plusDaysIso(0)}
+                  onChange={(e) => setQuoteFirstDate(e.target.value)}
                 />
-
-                <label className="auth-label" htmlFor="quote-availability">
-                  Availability
-                </label>
-                <input
-                  id="quote-availability"
-                  className="auth-input"
-                  type="text"
-                  value={quoteAvailability}
-                  onChange={(e) => setQuoteAvailability(e.target.value)}
-                  placeholder="e.g. Start next Tuesday"
-                />
-
-                {quoteError && <div className="fund-form-error">{quoteError}</div>}
 
                 <div className="fund-form-actions">
                   <button type="submit" className="fund-form-submit" disabled={quoteSubmitting}>
@@ -665,7 +701,9 @@ function Quotes({ buildingId }) {
                   <div className="q-header">
                     <div>
                       <div className="q-company">{q.company_name}</div>
-                      <div className="q-rating">⭐ {Number.isFinite(rating) ? rating : '—'} · {q.availability || '—'}</div>
+                      <div className="q-rating">
+                        ⭐ {Number.isFinite(rating) ? rating : '—'} · {formatQuoteAvailabilityLabel(q.availability)}
+                      </div>
                     </div>
                     <div className="q-price">{formatMoney(q.price)}</div>
                   </div>
@@ -676,7 +714,7 @@ function Quotes({ buildingId }) {
             })
           )}
 
-          {selectedJobQuotes.length > 0 && canStartVote && (
+          {isAdmin && selectedJobQuotes.length > 0 && canStartVote && (
             <div className="card fund-add-card">
               <label className="auth-label" htmlFor="vote-quote-pick">
                 Start vote
