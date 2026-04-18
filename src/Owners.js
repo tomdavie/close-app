@@ -303,6 +303,7 @@ function Owners({
   onOwnerFocusConsumed,
   onMessagesFocusConsumed,
   onMessagesOpened,
+  onFundTransactionsUpdated,
 }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -649,7 +650,8 @@ We recommend speaking to a solicitor before taking this step.`;
   async function markAsPaid(owner) {
     if (!window.confirm(`Mark ${owner.name || 'this owner'} as paid?`)) return;
     const periodContribution = periodContribByOwnerId[owner.id] || null;
-    const amountPaid = Math.max(0, Number(periodContribution?.amount) || Number(building?.contribution_amount) || 0);
+    const rawRecordAmount = Number(periodContribution?.amount);
+    const amountPaid = Number.isFinite(rawRecordAmount) ? Math.max(0, rawRecordAmount) : 0;
     const dueDate = toDateOnly(periodContribution?.due_date || currentPeriodDueDate || new Date().toISOString());
     const periodLabel =
       periodContribution?.period_label || currentPeriodLabel || periodLabelForDate(dueDate, currentFrequency);
@@ -669,15 +671,18 @@ We recommend speaking to a solicitor before taking this step.`;
       .update({ status: 'paid', paid_date: today })
       .eq('id', periodContribution.id);
 
+    let txError = null;
     if (!contribError && amountPaid > 0) {
-      await supabase.from('transactions').insert({
+      const ownerLabel = (owner.name || owner.flat || 'Owner').trim() || 'Owner';
+      const { error: insTxErr } = await supabase.from('transactions').insert({
         building_id: buildingId,
-        description: `Contribution received - ${owner.name || owner.flat || 'Owner'} (${periodLabel})`,
+        description: `${ownerLabel} - contribution ${periodLabel}`,
         amount: amountPaid,
         type: 'in',
         status: 'complete',
         date: `${today}T12:00:00.000Z`,
       });
+      txError = insTxErr;
     }
 
     if (!contribError && owner.user_id) {
@@ -698,12 +703,19 @@ We recommend speaking to a solicitor before taking this step.`;
       setFlash(contribError.message || 'Could not mark as paid.');
       return;
     }
+    onFundTransactionsUpdated?.();
     setContribByOwnerId((prev) => {
       const next = { ...prev };
       delete next[owner.id];
       return next;
     });
-    setFlash(`${owner.name || 'Owner'} marked as paid for ${periodLabel}.`);
+    if (txError) {
+      setFlash(
+        `${owner.name || 'Owner'} marked as paid for ${periodLabel}, but the fund transaction could not be added: ${txError.message}`
+      );
+    } else {
+      setFlash(`${owner.name || 'Owner'} marked as paid for ${periodLabel}.`);
+    }
     await loadData();
   }
 

@@ -91,6 +91,7 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
   const [ownerFocusId, setOwnerFocusId] = useState(null);
   const [quotesFocusJobId, setQuotesFocusJobId] = useState(null);
   const [openOwnersMessages, setOpenOwnersMessages] = useState(false);
+  const [fundTransactionsRefreshKey, setFundTransactionsRefreshKey] = useState(0);
   const [ownerCount, setOwnerCount] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -512,6 +513,7 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
             onOwnerFocusConsumed={() => setOwnerFocusId(null)}
             onMessagesFocusConsumed={() => setOpenOwnersMessages(false)}
             onMessagesOpened={markMessageNotificationsRead}
+            onFundTransactionsUpdated={() => setFundTransactionsRefreshKey((k) => k + 1)}
           />
         )}
         {screen === 'votes' && (
@@ -524,7 +526,9 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
             onJobFocusConsumed={() => setQuotesFocusJobId(null)}
           />
         )}
-        {screen === 'fund' && <Fund buildingId={buildingId} building={building} />}
+        {screen === 'fund' && (
+          <Fund buildingId={buildingId} building={building} transactionsRefreshKey={fundTransactionsRefreshKey} />
+        )}
       </div>
 
       {screen !== 'settings' && screen !== 'invite' && (

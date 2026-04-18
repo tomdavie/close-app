@@ -99,7 +99,7 @@ function buildFundTxRows(transactions, isAdmin) {
   return rows;
 }
 
-function Fund({ buildingId, building }) {
+function Fund({ buildingId, building, transactionsRefreshKey = 0 }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [transactions, setTransactions] = useState([]);
@@ -189,7 +189,7 @@ function Fund({ buildingId, building }) {
     return () => {
       cancelled = true;
     };
-  }, [fetchFundData]);
+  }, [fetchFundData, transactionsRefreshKey]);
 
   function resetAddForm() {
     setFormDescription('');
