@@ -21,6 +21,7 @@ export async function createNotificationsForUsers({
   buildingId,
   title,
   message,
+  type = 'general',
   targetScreen = 'home',
   targetId = null,
   eventKey = null,
@@ -32,6 +33,7 @@ export async function createNotificationsForUsers({
     building_id: buildingId,
     title,
     message,
+    type,
     target_screen: targetScreen,
     target_id: targetId,
     is_read: false,
@@ -50,23 +52,25 @@ export async function notifyAllOwners({
   buildingId,
   title,
   message,
+  type = 'general',
   targetScreen = 'home',
   targetId = null,
   eventKey = null,
   excludeUserId = null,
 }) {
   const userIds = await fetchRecipientUserIds(buildingId, { excludeUserId });
-  await createNotificationsForUsers({ userIds, buildingId, title, message, targetScreen, targetId, eventKey });
+  await createNotificationsForUsers({ userIds, buildingId, title, message, type, targetScreen, targetId, eventKey });
 }
 
 export async function notifyAdmins({
   buildingId,
   title,
   message,
+  type = 'general',
   targetScreen = 'owners',
   targetId = null,
   eventKey = null,
 }) {
   const userIds = await fetchRecipientUserIds(buildingId, { adminsOnly: true });
-  await createNotificationsForUsers({ userIds, buildingId, title, message, targetScreen, targetId, eventKey });
+  await createNotificationsForUsers({ userIds, buildingId, title, message, type, targetScreen, targetId, eventKey });
 }

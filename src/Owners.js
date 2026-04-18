@@ -413,10 +413,12 @@ function Owners({ buildingId, focusOwnerId, openMessagesOnFocus, onOwnerFocusCon
     }
     setMessageDraft('');
     setMessages((prev) => [...prev, row]);
+    const preview = `${text.slice(0, 50)}...`;
     await notifyAllOwners({
       buildingId,
       title: `New message from ${senderName}`,
-      message: text.length > 110 ? `${text.slice(0, 107)}...` : text,
+      message: preview,
+      type: 'message',
       targetScreen: 'messages',
       targetId: 'messages',
       excludeUserId: currentUser?.id ?? null,

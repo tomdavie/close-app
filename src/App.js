@@ -90,6 +90,7 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
   const [ownerFocusId, setOwnerFocusId] = useState(null);
   const [quotesFocusJobId, setQuotesFocusJobId] = useState(null);
   const [openOwnersMessages, setOpenOwnersMessages] = useState(false);
+  const [ownerCount, setOwnerCount] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notifLoading, setNotifLoading] = useState(false);
@@ -105,6 +106,33 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
     }
     if (screen !== 'quotes') setQuotesFocusJobId(null);
   }, [screen]);
+
+  const loadOwnerCount = useCallback(async () => {
+    const { count } = await supabase
+      .from('owners')
+      .select('id', { count: 'exact', head: true })
+      .eq('building_id', buildingId)
+      .or('status.is.null,status.neq.removed');
+    setOwnerCount(count ?? 0);
+  }, [buildingId]);
+
+  useEffect(() => {
+    loadOwnerCount();
+    const channel = supabase
+      .channel(`owners-count-${buildingId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'owners', filter: `building_id=eq.${buildingId}` },
+        () => {
+          loadOwnerCount();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [buildingId, loadOwnerCount]);
 
   const loadNotifications = useCallback(async () => {
     if (!session?.user?.id) return;
@@ -253,7 +281,9 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
         </div>
         <div className="topbar-user">{displayNameFromSession(session)}</div>
         <div className="topbar-building">{buildingLine}</div>
-        <span className="topbar-tag">Self-factored · 6 owners</span>
+        <span className="topbar-tag">
+          Self-factored · {ownerCount == null ? '…' : ownerCount} owner{ownerCount === 1 ? '' : 's'}
+        </span>
         {showNotifications && (
           <div className="topbar-notif-panel">
             <div className="fund-section-head">
