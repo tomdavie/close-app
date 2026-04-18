@@ -58,6 +58,116 @@ body {
 .topbar-building { font-size: 13px; color: rgba(255,255,255,0.8); margin-top: 4px; font-weight: 500; }
 .topbar-tag { display: inline-block; background: rgba(255,255,255,0.18); color: #fff; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; margin-top: 6px; }
 
+.topbar-bell-btn {
+  position: relative;
+  border: none;
+  background: transparent;
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.topbar-bell-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.topbar-bell-badge {
+  position: absolute;
+  top: -4px;
+  right: -2px;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #c92f2f;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 16px;
+  text-align: center;
+  padding: 0 4px;
+}
+
+.topbar-notif-panel {
+  margin-top: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 251, 244, 0.95);
+  padding: 10px;
+}
+
+.topbar-notif-markall {
+  border: none;
+  background: transparent;
+  color: #6f4c3b;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.topbar-notif-list {
+  margin-top: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.topbar-notif-item {
+  border: 1px solid #eadfce;
+  background: #fff;
+  border-radius: 10px;
+  text-align: left;
+  padding: 9px 10px;
+  cursor: pointer;
+}
+
+.topbar-notif-item--unread {
+  border-color: #d6bca8;
+  background: #fff8f0;
+}
+
+.topbar-notif-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.topbar-notif-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: #4c3024;
+}
+
+.topbar-notif-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #c33e1b;
+}
+
+.topbar-notif-message {
+  margin-top: 3px;
+  font-size: 12px;
+  color: #735746;
+  line-height: 1.35;
+}
+
+.topbar-notif-time,
+.topbar-notif-empty {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #8a7161;
+}
+
 .nav { display: flex; background: #fbf8f2; border-bottom: 1px solid #e7d9c5; }
 .nav-item { flex: 1; padding: 10px 4px 8px; text-align: center; cursor: pointer; font-size: 10px; font-weight: 700; color: #aaa; border: none; background: none; font-family: 'Nunito', sans-serif; text-transform: uppercase; letter-spacing: 0.02em; }
 .nav-item.active { color: #a3482f; border-bottom: 2px solid #a3482f; }
@@ -364,6 +474,20 @@ button.alert-strip--tappable:hover .alert-strip-arrow {
   border-bottom: 0.5px solid var(--cl-sand-dark);
 }
 
+button.owner-row {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.owners-row-btn:hover {
+  background: #faf2e8;
+}
+
 .owner-admin-row {
   align-items: flex-start;
 }
@@ -617,6 +741,25 @@ button.alert-strip--tappable:hover .alert-strip-arrow {
 
 .owners-chat-error {
   margin-top: 8px;
+}
+
+.owners-messages-btn {
+  position: relative;
+}
+
+.owners-mini-badge {
+  display: inline-block;
+  margin-left: 6px;
+  min-width: 16px;
+  height: 16px;
+  line-height: 16px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+  color: #fff;
+  background: #c63b22;
+  padding: 0 4px;
 }
 
 .owners-modal-backdrop {
@@ -1373,6 +1516,7 @@ button.alert-strip--tappable:hover .alert-strip-arrow {
   align-items: center;
   justify-content: flex-end;
   flex-shrink: 0;
+  gap: 8px;
 }
 
 .topbar-settings-link {

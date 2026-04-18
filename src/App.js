@@ -87,11 +87,107 @@ function topbarBuildingLine(b) {
 function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated }) {
   const [screen, setScreen] = useState('home');
   const [voteFocusId, setVoteFocusId] = useState(null);
+  const [ownerFocusId, setOwnerFocusId] = useState(null);
+  const [quotesFocusJobId, setQuotesFocusJobId] = useState(null);
+  const [openOwnersMessages, setOpenOwnersMessages] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [notifError, setNotifError] = useState(null);
   const buildingLine = topbarBuildingLine(building) || 'Your close';
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   useEffect(() => {
     if (screen !== 'votes') setVoteFocusId(null);
+    if (screen !== 'owners') {
+      setOwnerFocusId(null);
+      setOpenOwnersMessages(false);
+    }
+    if (screen !== 'quotes') setQuotesFocusJobId(null);
   }, [screen]);
+
+  const loadNotifications = useCallback(async () => {
+    if (!session?.user?.id) return;
+    setNotifLoading(true);
+    setNotifError(null);
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('id, title, message, created_at, is_read, target_screen, target_id')
+      .eq('user_id', session.user.id)
+      .eq('building_id', buildingId)
+      .order('created_at', { ascending: false })
+      .limit(80);
+    setNotifLoading(false);
+    if (error) {
+      if (error.code === '42P01') {
+        setNotifications([]);
+        return;
+      }
+      setNotifError(error.message);
+      return;
+    }
+    setNotifications(data || []);
+  }, [session, buildingId]);
+
+  useEffect(() => {
+    loadNotifications();
+    const t = setInterval(loadNotifications, 30000);
+    return () => clearInterval(t);
+  }, [loadNotifications]);
+
+  async function markNotificationRead(id) {
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
+    await supabase.from('notifications').update({ is_read: true }).eq('id', id);
+  }
+
+  async function markAllNotificationsRead() {
+    if (!session?.user?.id) return;
+    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('user_id', session.user.id)
+      .eq('building_id', buildingId)
+      .eq('is_read', false);
+  }
+
+  async function openNotification(n) {
+    await markNotificationRead(n.id);
+    setShowNotifications(false);
+    const target = (n.target_screen || 'home').toLowerCase();
+    if (target === 'votes') {
+      if (n.target_id) setVoteFocusId(n.target_id);
+      setScreen('votes');
+      return;
+    }
+    if (target === 'messages') {
+      setOpenOwnersMessages(true);
+      setOwnerFocusId(null);
+      setScreen('owners');
+      return;
+    }
+    if (target === 'owners') {
+      if (n.target_id === 'messages') {
+        setOpenOwnersMessages(true);
+        setOwnerFocusId(null);
+      } else if (n.target_id) {
+        setOwnerFocusId(n.target_id);
+        setOpenOwnersMessages(false);
+      }
+      setScreen('owners');
+      return;
+    }
+    if (target === 'quotes') {
+      if (n.target_id) setQuotesFocusJobId(n.target_id);
+      setScreen('quotes');
+      return;
+    }
+    if (target === 'fund') {
+      setScreen('fund');
+      return;
+    }
+    setScreen('home');
+  }
 
   return (
     <div className="app">
@@ -101,6 +197,18 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
             Cl<em>ō</em>se
           </div>
           <div className="topbar-actions">
+            <button
+              type="button"
+              className="topbar-bell-btn"
+              aria-label="Notifications"
+              onClick={() => {
+                if (!showNotifications) loadNotifications();
+                setShowNotifications((v) => !v);
+              }}
+            >
+              <span aria-hidden>🔔</span>
+              {unreadCount > 0 && <span className="topbar-bell-badge">{unreadCount}</span>}
+            </button>
             {screen === 'settings' || screen === 'invite' ? (
               <button type="button" className="topbar-back-btn" onClick={() => setScreen('home')}>
                 ← Back
@@ -115,6 +223,41 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
         <div className="topbar-user">{displayNameFromSession(session)}</div>
         <div className="topbar-building">{buildingLine}</div>
         <span className="topbar-tag">Self-factored · 6 owners</span>
+        {showNotifications && (
+          <div className="topbar-notif-panel">
+            <div className="fund-section-head">
+              <div className="slabel">Notifications</div>
+              <button type="button" className="topbar-notif-markall" onClick={markAllNotificationsRead}>
+                Mark all as read
+              </button>
+            </div>
+            {notifLoading ? (
+              <div className="topbar-notif-empty">Loading…</div>
+            ) : notifError ? (
+              <div className="topbar-notif-empty">{notifError}</div>
+            ) : notifications.length === 0 ? (
+              <div className="topbar-notif-empty">No notifications yet.</div>
+            ) : (
+              <div className="topbar-notif-list">
+                {notifications.map((n) => (
+                  <button
+                    key={n.id}
+                    type="button"
+                    className={`topbar-notif-item${n.is_read ? '' : ' topbar-notif-item--unread'}`}
+                    onClick={() => openNotification(n)}
+                  >
+                    <div className="topbar-notif-title-row">
+                      <div className="topbar-notif-title">{n.title}</div>
+                      {!n.is_read && <span className="topbar-notif-dot" />}
+                    </div>
+                    <div className="topbar-notif-message">{n.message}</div>
+                    <div className="topbar-notif-time">{new Date(n.created_at).toLocaleString('en-GB')}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {screen !== 'settings' && screen !== 'invite' && (
@@ -152,11 +295,25 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
             }}
           />
         )}
-        {screen === 'owners' && <Owners buildingId={buildingId} />}
+        {screen === 'owners' && (
+          <Owners
+            buildingId={buildingId}
+            focusOwnerId={ownerFocusId}
+            openMessagesOnFocus={openOwnersMessages}
+            onOwnerFocusConsumed={() => setOwnerFocusId(null)}
+            onMessagesFocusConsumed={() => setOpenOwnersMessages(false)}
+          />
+        )}
         {screen === 'votes' && (
           <Votes buildingId={buildingId} focusVoteId={voteFocusId} onVoteFocusConsumed={() => setVoteFocusId(null)} />
         )}
-        {screen === 'quotes' && <Quotes buildingId={buildingId} />}
+        {screen === 'quotes' && (
+          <Quotes
+            buildingId={buildingId}
+            focusJobId={quotesFocusJobId}
+            onJobFocusConsumed={() => setQuotesFocusJobId(null)}
+          />
+        )}
         {screen === 'fund' && <Fund buildingId={buildingId} building={building} />}
       </div>
     </div>

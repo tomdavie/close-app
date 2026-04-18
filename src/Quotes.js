@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { supabase } from './supabase';
+import { notifyAllOwners } from './notifications';
 
 function formatMoney(amount) {
   const n = Number(amount);
@@ -85,6 +86,14 @@ async function reconcileWinningVotes({ buildingId, jobs, quotes, votes }) {
 
     if (yes <= no) {
       await supabase.from('jobs').update({ status: 'quotes_requested' }).eq('id', job.id);
+      await notifyAllOwners({
+        buildingId,
+        title: `Vote closed for ${job.title}`,
+        message: 'The vote did not pass, so new quotes can now be reviewed.',
+        targetScreen: 'quotes',
+        targetId: job.id,
+        eventKey: `vote_final:${vote.id}:declined`,
+      });
       changed = true;
       continue;
     }
@@ -96,6 +105,14 @@ async function reconcileWinningVotes({ buildingId, jobs, quotes, votes }) {
 
     await supabase.from('quotes').update({ status: 'accepted' }).eq('id', quoteId);
     await supabase.from('jobs').update({ status: 'accepted', winning_quote_id: quoteId }).eq('id', job.id);
+    await notifyAllOwners({
+      buildingId,
+      title: `Vote passed for ${job.title}`,
+      message: `${winningQuote.company_name || 'A quote'} was approved and work can proceed.`,
+      targetScreen: 'quotes',
+      targetId: job.id,
+      eventKey: `vote_final:${vote.id}:passed`,
+    });
 
     const txDesc = winningQuote.company_name || 'Approved quote';
     const txAmount = Number(winningQuote.price) || 0;
@@ -127,7 +144,7 @@ async function reconcileWinningVotes({ buildingId, jobs, quotes, votes }) {
   return changed;
 }
 
-function Quotes({ buildingId }) {
+function Quotes({ buildingId, focusJobId, onJobFocusConsumed }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -308,6 +325,17 @@ function Quotes({ buildingId }) {
     }
   }, [selectedJob, selectedJobQuotes, voteQuoteId]);
 
+  useEffect(() => {
+    if (!focusJobId) return;
+    const exists = jobs.some((j) => j.id === focusJobId);
+    if (exists) {
+      setSelectedJobId(focusJobId);
+      onJobFocusConsumed?.();
+      return;
+    }
+    if (!loading) onJobFocusConsumed?.();
+  }, [focusJobId, jobs, loading, onJobFocusConsumed]);
+
   async function submitNewJob(e) {
     e.preventDefault();
     setNewJobError(null);
@@ -384,8 +412,16 @@ function Quotes({ buildingId }) {
       .eq('id', job.id);
 
     if (jobErr) return { ok: false, message: jobErr.message };
+    await notifyAllOwners({
+      buildingId,
+      title: `New vote opened: ${job.title}`,
+      message: `Please review and vote on ${chosenQuote.company_name} (${formatMoney(chosenQuote.price)}).`,
+      targetScreen: 'votes',
+      targetId: voteRow.id,
+      eventKey: `vote_created:${voteRow.id}`,
+    });
 
-    return { ok: true };
+    return { ok: true, voteId: voteRow.id };
   }
 
   async function submitNewQuote(e) {
@@ -417,7 +453,9 @@ function Quotes({ buildingId }) {
     }
 
     setQuoteSubmitting(true);
-    const { error: insErr } = await supabase.from('quotes').insert({
+    const { data: quoteRow, error: insErr } = await supabase
+      .from('quotes')
+      .insert({
       building_id: buildingId,
       job_id: selectedJob.id,
       company_name: company,
@@ -427,7 +465,9 @@ function Quotes({ buildingId }) {
       availability: firstDate,
       status: 'submitted',
       created_at: new Date().toISOString(),
-    });
+      })
+      .select('id')
+      .single();
     if (!insErr && (selectedJob.status || '').toLowerCase() === 'open') {
       await supabase.from('jobs').update({ status: 'quotes_requested' }).eq('id', selectedJob.id);
     }
@@ -437,6 +477,14 @@ function Quotes({ buildingId }) {
       setQuoteError(insErr.message);
       return;
     }
+    await notifyAllOwners({
+      buildingId,
+      title: `New quote added for ${selectedJob.title}`,
+      message: `${company} submitted a quote for ${formatMoney(price)}.`,
+      targetScreen: 'quotes',
+      targetId: selectedJob.id,
+      eventKey: quoteRow?.id ? `quote_added:${quoteRow.id}` : null,
+    });
 
     const { data: qList, error: listErr } = await supabase
       .from('quotes')

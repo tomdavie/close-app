@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { supabase } from './supabase';
+import { notifyAllOwners } from './notifications';
 
 function daysUntilClose(dateStr) {
   if (!dateStr) return null;
@@ -231,16 +232,20 @@ function Votes({ buildingId, focusVoteId, onVoteFocusConsumed }) {
     const totalOwners = Math.max(0, count ?? 0);
     const closesAt = `${formCloseDate}T23:59:59.000Z`;
 
-    const { error: insErr } = await supabase.from('votes').insert({
-      building_id: buildingId,
-      title,
-      description: desc || null,
-      yes_count: 0,
-      no_count: 0,
-      total_owners: totalOwners,
-      status: 'open',
-      closes_at: closesAt,
-    });
+    const { data: voteRow, error: insErr } = await supabase
+      .from('votes')
+      .insert({
+        building_id: buildingId,
+        title,
+        description: desc || null,
+        yes_count: 0,
+        no_count: 0,
+        total_owners: totalOwners,
+        status: 'open',
+        closes_at: closesAt,
+      })
+      .select('id')
+      .single();
 
     setFormSubmitting(false);
 
@@ -248,6 +253,14 @@ function Votes({ buildingId, focusVoteId, onVoteFocusConsumed }) {
       setFormError(insErr.message);
       return;
     }
+    await notifyAllOwners({
+      buildingId,
+      title: `New vote opened`,
+      message: title,
+      targetScreen: 'votes',
+      targetId: voteRow?.id || null,
+      eventKey: voteRow?.id ? `vote_created:${voteRow.id}` : null,
+    });
 
     await syncVoteData(false);
     closeStartForm();

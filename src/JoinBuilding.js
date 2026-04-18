@@ -3,6 +3,7 @@ import { useParams, Link, Navigate, useNavigate } from 'react-router-dom';
 import { supabase } from './supabase';
 import Login from './Login';
 import SignUp from './SignUp';
+import { notifyAllOwners } from './notifications';
 
 function buildingAddressLine(b) {
   if (!b) return '';
@@ -99,13 +100,16 @@ function JoinBuildingForm({ session, buildingId, onSuccess }) {
 
     const { data: existing } = await supabase
       .from('owners')
-      .select('id')
+      .select('id, name')
       .eq('building_id', buildingId)
       .eq('email', userEmail)
       .maybeSingle();
 
     if (existing) {
-      await supabase.from('owners').update({ user_id: userId }).eq('id', existing.id);
+      await supabase
+        .from('owners')
+        .update({ user_id: userId, status: 'active', name: displayName, flat: f })
+        .eq('id', existing.id);
       const { error: uErr } = await supabase.auth.updateUser({
         data: { building_id: buildingId },
       });
@@ -115,20 +119,33 @@ function JoinBuildingForm({ session, buildingId, onSuccess }) {
         return;
       }
       await supabase.auth.refreshSession();
+      await notifyAllOwners({
+        buildingId,
+        title: 'A new neighbour joined',
+        message: `${displayName} has joined the building on Clōse.`,
+        targetScreen: 'owners',
+        targetId: existing.id,
+        eventKey: `owner_joined:${existing.id}`,
+        excludeUserId: userId,
+      });
       onSuccess();
       return;
     }
 
-    const { error: oErr } = await supabase.from('owners').insert({
-      building_id: buildingId,
-      user_id: userId,
-      name: displayName,
-      email: userEmail,
-      flat: f,
-      role: 'owner',
-      status: 'active',
-      balance: 0,
-    });
+    const { data: insertedOwner, error: oErr } = await supabase
+      .from('owners')
+      .insert({
+        building_id: buildingId,
+        user_id: userId,
+        name: displayName,
+        email: userEmail,
+        flat: f,
+        role: 'owner',
+        status: 'active',
+        balance: 0,
+      })
+      .select('id')
+      .single();
 
     if (oErr) {
       setSubmitting(false);
@@ -147,6 +164,15 @@ function JoinBuildingForm({ session, buildingId, onSuccess }) {
     }
 
     await supabase.auth.refreshSession();
+    await notifyAllOwners({
+      buildingId,
+      title: 'A new neighbour joined',
+      message: `${displayName} has joined the building on Clōse.`,
+      targetScreen: 'owners',
+      targetId: insertedOwner?.id || null,
+      eventKey: insertedOwner?.id ? `owner_joined:${insertedOwner.id}` : null,
+      excludeUserId: userId,
+    });
     onSuccess();
   }
 
