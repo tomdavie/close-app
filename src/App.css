@@ -875,7 +875,7 @@ button.owner-row {
 .owners-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(57, 38, 29, 0.42);
+  background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -884,20 +884,42 @@ button.owner-row {
 }
 
 .owners-modal {
-  width: min(620px, 100%);
+  width: min(760px, 96vw);
+  max-height: 88vh;
+  overflow: auto;
   background: #fffaf2;
   border: 1px solid #e7d9c7;
   border-radius: 14px;
-  padding: 14px;
-  box-shadow: 0 10px 24px rgba(58, 39, 30, 0.2);
+  padding: 18px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
 }
 
-.owners-modal-text {
-  min-height: 220px;
+.owners-modal-message {
+  margin-top: 6px;
+  min-height: 280px;
+  background: #f5f0e8;
+  border: 1px solid #e3d6c5;
+  border-radius: 12px;
+  padding: 14px;
+  color: #5a4134;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
 }
 
 .owners-modal-close-btn {
+  border: none;
+  background: transparent;
+  padding: 0;
   color: var(--cl-rust-dark);
+  font-family: 'Nunito', sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.owners-modal-close-btn:hover {
+  color: #9f3f24;
   text-decoration: underline;
   text-underline-offset: 2px;
 }

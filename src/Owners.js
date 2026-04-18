@@ -702,11 +702,11 @@ We recommend speaking to a solicitor before taking this step.`;
             <div className="owners-modal">
               <div className="fund-section-head">
                 <div className="slabel">Formal notice</div>
-                <button type="button" className="fund-form-cancel owners-modal-close-btn" onClick={closeAllModals}>
+                <button type="button" className="owners-modal-close-btn" onClick={closeAllModals}>
                   Close
                 </button>
               </div>
-              <textarea className="auth-input auth-input-textarea owners-modal-text" readOnly value={formalNoticeText(activeOwner)} />
+              <div className="owners-modal-message">{formalNoticeText(activeOwner)}</div>
               <div className="fund-form-actions">
                 <button
                   type="button"
@@ -729,11 +729,11 @@ We recommend speaking to a solicitor before taking this step.`;
             <div className="owners-modal">
               <div className="fund-section-head">
                 <div className="slabel">Notice of Potential Liability</div>
-                <button type="button" className="fund-form-cancel owners-modal-close-btn" onClick={closeAllModals}>
+                <button type="button" className="owners-modal-close-btn" onClick={closeAllModals}>
                   Close
                 </button>
               </div>
-              <textarea className="auth-input auth-input-textarea owners-modal-text" readOnly value={nplText(activeOwner)} />
+              <div className="owners-modal-message">{nplText(activeOwner)}</div>
               <div className="fund-form-actions">
                 <button
                   type="button"
@@ -763,11 +763,11 @@ We recommend speaking to a solicitor before taking this step.`;
             <div className="owners-modal">
               <div className="fund-section-head">
                 <div className="slabel">Friendly reminder</div>
-                <button type="button" className="fund-form-cancel owners-modal-close-btn" onClick={closeAllModals}>
+                <button type="button" className="owners-modal-close-btn" onClick={closeAllModals}>
                   Close
                 </button>
               </div>
-              <textarea className="auth-input auth-input-textarea owners-modal-text" readOnly value={reminderTemplate(activeOwner)} />
+              <div className="owners-modal-message">{reminderTemplate(activeOwner)}</div>
               <div className="fund-form-actions">
                 <button
                   type="button"
