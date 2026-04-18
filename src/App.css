@@ -58,7 +58,7 @@ body {
 .topbar-building { font-size: 13px; color: rgba(255,255,255,0.8); margin-top: 4px; font-weight: 500; }
 .topbar-tag { display: inline-block; background: rgba(255,255,255,0.18); color: #fff; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; margin-top: 6px; }
 
-.topbar-bell-btn {
+.topbar-icon-btn {
   position: relative;
   border: none;
   background: transparent;
@@ -73,8 +73,23 @@ body {
   justify-content: center;
 }
 
-.topbar-bell-btn:hover {
+.topbar-icon-btn:hover {
   background: rgba(255, 255, 255, 0.15);
+}
+
+.topbar-bell-btn {
+  position: relative;
+}
+
+.topbar-icon-btn svg {
+  display: block;
+}
+
+.topbar-settings-link {
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.95);
 }
 
 .topbar-bell-badge {
@@ -166,6 +181,17 @@ body {
   margin-top: 4px;
   font-size: 11px;
   color: #8a7161;
+}
+
+.topbar-notif-empty-wrap {
+  margin-top: 6px;
+  padding: 10px 8px;
+}
+
+.topbar-notif-empty-sub {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #9a8478;
 }
 
 .nav { display: flex; background: #fbf8f2; border-bottom: 1px solid #e7d9c5; }
@@ -850,28 +876,40 @@ button.owner-row {
   flex-shrink: 0;
 }
 
+.vote-voted-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0 6px;
+}
+
 .vote-voted-hint {
-  margin: 8px 0 2px;
+  margin: 0;
   font-size: 11px;
   font-weight: 600;
-  color: #aaa;
+  color: #a3a3a3;
   line-height: 1.35;
+  white-space: nowrap;
+  flex: 1;
 }
 
 .vote-change-mind {
-  display: block;
-  margin: 0 0 6px;
+  display: inline;
+  margin: 0;
   padding: 0;
   border: none;
   background: none;
   font-family: 'Nunito', sans-serif;
   font-size: 11px;
   font-weight: 600;
-  color: #9a9a9a;
+  color: #8a8a8a;
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
-  text-align: left;
+  text-align: right;
+  white-space: nowrap;
+  margin-left: auto;
 }
 
 .vote-change-mind:hover:not(:disabled) {
@@ -1517,26 +1555,6 @@ button.owner-row {
   justify-content: flex-end;
   flex-shrink: 0;
   gap: 8px;
-}
-
-.topbar-settings-link {
-  flex-shrink: 0;
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-family: 'Nunito', sans-serif;
-  font-size: 11px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.88);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  letter-spacing: 0.02em;
-}
-
-.topbar-settings-link:hover {
-  color: #fff;
 }
 
 .topbar-back-btn {

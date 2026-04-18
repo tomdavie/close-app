@@ -199,14 +199,30 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
           <div className="topbar-actions">
             <button
               type="button"
-              className="topbar-bell-btn"
+              className="topbar-icon-btn topbar-bell-btn"
               aria-label="Notifications"
               onClick={() => {
                 if (!showNotifications) loadNotifications();
                 setShowNotifications((v) => !v);
               }}
             >
-              <span aria-hidden>🔔</span>
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden focusable="false">
+                <path
+                  d="M15.5 17.5h-7a2 2 0 0 1-2-2v-.7l1.2-1.8V9.8a4.3 4.3 0 0 1 8.6 0V13l1.2 1.8v.7a2 2 0 0 1-2 2Z"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M10.2 18a1.8 1.8 0 0 0 3.6 0"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
               {unreadCount > 0 && <span className="topbar-bell-badge">{unreadCount}</span>}
             </button>
             {screen === 'settings' || screen === 'invite' ? (
@@ -214,8 +230,23 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
                 ← Back
               </button>
             ) : (
-              <button type="button" className="topbar-settings-link" onClick={() => setScreen('settings')}>
-                Settings
+              <button type="button" className="topbar-icon-btn topbar-settings-link" aria-label="Settings" onClick={() => setScreen('settings')}>
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden focusable="false">
+                  <path
+                    d="M12 8.4a3.6 3.6 0 1 1 0 7.2 3.6 3.6 0 0 1 0-7.2Z"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                  />
+                  <path
+                    d="M19.2 13.2v-2.4l-2-.5a5.9 5.9 0 0 0-.5-1.2l1.2-1.7-1.7-1.7-1.7 1.2a5.9 5.9 0 0 0-1.2-.5l-.5-2h-2.4l-.5 2a5.9 5.9 0 0 0-1.2.5L7.9 5.7 6.2 7.4l1.2 1.7a5.9 5.9 0 0 0-.5 1.2l-2 .5v2.4l2 .5c.1.4.3.8.5 1.2l-1.2 1.7 1.7 1.7 1.7-1.2c.4.2.8.4 1.2.5l.5 2h2.4l.5-2c.4-.1.8-.3 1.2-.5l1.7 1.2 1.7-1.7-1.2-1.7c.2-.4.4-.8.5-1.2l2-.5Z"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
               </button>
             )}
           </div>
@@ -233,10 +264,11 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
             </div>
             {notifLoading ? (
               <div className="topbar-notif-empty">Loading…</div>
-            ) : notifError ? (
-              <div className="topbar-notif-empty">{notifError}</div>
-            ) : notifications.length === 0 ? (
-              <div className="topbar-notif-empty">No notifications yet.</div>
+            ) : notifError || notifications.length === 0 ? (
+              <div className="topbar-notif-empty-wrap">
+                <div className="topbar-notif-empty">You&apos;re all caught up</div>
+                <div className="topbar-notif-empty-sub">New activity in your close will appear here</div>
+              </div>
             ) : (
               <div className="topbar-notif-list">
                 {notifications.map((n) => (

@@ -654,7 +654,7 @@ function Votes({ buildingId, focusVoteId, onVoteFocusConsumed }) {
                   </p>
                 )}
                 {hasVoted && !showThanks && (
-                  <>
+                  <div className="vote-voted-row">
                     <p className="vote-voted-hint">You&apos;ve voted on this</p>
                     <button
                       type="button"
@@ -667,7 +667,7 @@ function Votes({ buildingId, focusVoteId, onVoteFocusConsumed }) {
                     >
                       {retractBusy ? 'Removing…' : 'Changed your mind?'}
                     </button>
-                  </>
+                  </div>
                 )}
                 <div className="vote-meta">
                   <span>

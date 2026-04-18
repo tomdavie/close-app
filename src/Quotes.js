@@ -35,6 +35,11 @@ function formatQuoteAvailabilityLabel(av) {
   return s;
 }
 
+function cleanVoteTitlePart(value, fallback = '') {
+  const txt = String(value || fallback || '').replace(/[—–]+/g, '-').replace(/\s+/g, ' ').trim();
+  return txt || fallback;
+}
+
 function QuoteStarRatingInput({ value, onChange }) {
   const n = Math.min(5, Math.max(1, parseInt(value, 10) || 1));
   return (
@@ -384,7 +389,9 @@ function Quotes({ buildingId, focusJobId, onJobFocusConsumed }) {
 
     const closeDate = plusDaysIso(7);
     const closesAt = `${closeDate}T23:59:59.000Z`;
-    const title = `Approve ${chosenQuote.company_name} for ${job.title} — ${formatMoney(chosenQuote.price)}`;
+    const companyName = cleanVoteTitlePart(chosenQuote.company_name, 'Selected quote');
+    const jobTitle = cleanVoteTitlePart(job.title, 'Repair job');
+    const title = `Approve ${companyName} - ${jobTitle} · ${formatMoney(chosenQuote.price)}`;
     const description = chosenQuote.description || job.description || null;
 
     const { data: voteRow, error: voteErr } = await supabase
