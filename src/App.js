@@ -86,7 +86,12 @@ function topbarBuildingLine(b) {
 
 function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated }) {
   const [screen, setScreen] = useState('home');
+  const [voteFocusId, setVoteFocusId] = useState(null);
   const buildingLine = topbarBuildingLine(building) || 'Your close';
+
+  useEffect(() => {
+    if (screen !== 'votes') setVoteFocusId(null);
+  }, [screen]);
 
   return (
     <div className="app">
@@ -137,9 +142,20 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
           <BuildingSettings session={session} onBuildingUpdated={onBuildingUpdated} onLogout={onLogout} />
         )}
         {screen === 'invite' && <InviteShare buildingId={buildingId} building={building} />}
-        {screen === 'home' && <Home buildingId={buildingId} onOpenInvite={() => setScreen('invite')} />}
+        {screen === 'home' && (
+          <Home
+            buildingId={buildingId}
+            onOpenInvite={() => setScreen('invite')}
+            onVoteAlertClick={(voteId) => {
+              setVoteFocusId(voteId);
+              setScreen('votes');
+            }}
+          />
+        )}
         {screen === 'owners' && <Owners buildingId={buildingId} />}
-        {screen === 'votes' && <Votes buildingId={buildingId} />}
+        {screen === 'votes' && (
+          <Votes buildingId={buildingId} focusVoteId={voteFocusId} onVoteFocusConsumed={() => setVoteFocusId(null)} />
+        )}
         {screen === 'quotes' && <Quotes buildingId={buildingId} />}
         {screen === 'fund' && <Fund buildingId={buildingId} building={building} />}
       </div>

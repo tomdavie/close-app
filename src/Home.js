@@ -84,7 +84,7 @@ function heroGreetingLine(user) {
   return `${timeOfDayGreeting()}, ${name}`;
 }
 
-function Home({ buildingId, onOpenInvite }) {
+function Home({ buildingId, onOpenInvite, onVoteAlertClick }) {
   const [authUser, setAuthUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -400,15 +400,30 @@ function Home({ buildingId, onOpenInvite }) {
             </div>
           </div>
         ) : (
-          alerts.map((alert) => (
-            <div key={alert.id} className={`alert-strip ${alert.tone}`}>
-              <div className="alert-icon">{alert.icon}</div>
-              <div>
-                <div className="card-title">{alert.title}</div>
-                <div className="card-sub">{alert.detail}</div>
+          alerts.map((alert) =>
+            typeof onVoteAlertClick === 'function' ? (
+              <button
+                key={alert.id}
+                type="button"
+                className={`alert-strip ${alert.tone} alert-strip--tappable`}
+                onClick={() => onVoteAlertClick(alert.id)}
+              >
+                <div className="alert-icon">{alert.icon}</div>
+                <div className="alert-strip-text">
+                  <div className="card-title">{alert.title}</div>
+                  <div className="card-sub">{alert.detail}</div>
+                </div>
+              </button>
+            ) : (
+              <div key={alert.id} className={`alert-strip ${alert.tone}`}>
+                <div className="alert-icon">{alert.icon}</div>
+                <div>
+                  <div className="card-title">{alert.title}</div>
+                  <div className="card-sub">{alert.detail}</div>
+                </div>
               </div>
-            </div>
-          ))
+            )
+          )
         )}
       </section>
 

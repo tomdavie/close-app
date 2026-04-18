@@ -27,6 +27,32 @@ function plusDaysIso(days) {
   return `${y}-${m}-${day}`;
 }
 
+function formatQuoteAvailabilityLabel(av) {
+  if (!av || !String(av).trim()) return '—';
+  const s = String(av).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return formatDate(s);
+  return s;
+}
+
+function QuoteStarRatingInput({ value, onChange }) {
+  const n = Math.min(5, Math.max(1, parseInt(value, 10) || 1));
+  return (
+    <div className="quote-star-rating" role="radiogroup" aria-label="Our rating of this tradesperson">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <button
+          key={star}
+          type="button"
+          className={`quote-star-btn${star <= n ? ' quote-star-btn--on' : ''}`}
+          onClick={() => onChange(String(star))}
+          aria-label={`${star} star${star === 1 ? '' : 's'}`}
+        >
+          ★
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function urgencyBadge(urgency) {
   const u = (urgency || '').toLowerCase();
   if (u === 'emergency') return { cls: 'badge-red', text: 'Emergency' };
@@ -123,9 +149,10 @@ function Quotes({ buildingId }) {
   const [quotePrice, setQuotePrice] = useState('');
   const [quoteDescription, setQuoteDescription] = useState('');
   const [quoteRating, setQuoteRating] = useState('4');
-  const [quoteAvailability, setQuoteAvailability] = useState('');
+  const [quoteFirstDate, setQuoteFirstDate] = useState(() => plusDaysIso(0));
   const [quoteSubmitting, setQuoteSubmitting] = useState(false);
   const [quoteError, setQuoteError] = useState(null);
+  const [autoVoteBanner, setAutoVoteBanner] = useState('');
 
   const [voteQuoteId, setVoteQuoteId] = useState('');
   const [voteSubmitting, setVoteSubmitting] = useState(false);
@@ -266,6 +293,10 @@ function Quotes({ buildingId }) {
   useEffect(() => {
     setVoteQuoteId('');
     setCompleteError(null);
+  }, [selectedJobId]);
+
+  useEffect(() => {
+    setAutoVoteBanner('');
   }, [selectedJobId]);
 
   useEffect(() => {

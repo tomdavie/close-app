@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { supabase } from './supabase';
 
 function daysUntilClose(dateStr) {
@@ -36,7 +36,15 @@ function datePlusDaysLocal(days) {
   return `${y}-${m}-${day}`;
 }
 
-function Votes({ buildingId }) {
+function isLongVoteDescription(s) {
+  const t = (s || '').trim();
+  if (!t) return false;
+  if (t.length > 110) return true;
+  const lines = t.split(/\n/).filter((line) => line.trim().length > 0);
+  return lines.length >= 2;
+}
+
+function Votes({ buildingId, focusVoteId, onVoteFocusConsumed }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [votes, setVotes] = useState([]);
@@ -47,6 +55,9 @@ function Votes({ buildingId }) {
   const [retractingId, setRetractingId] = useState(null);
   const [voteErrorById, setVoteErrorById] = useState({});
   const thanksTimeoutsRef = useRef({});
+
+  const [expandedDescVoteIds, setExpandedDescVoteIds] = useState(() => new Set());
+  const [highlightVoteId, setHighlightVoteId] = useState(null);
 
   const [showStartForm, setShowStartForm] = useState(false);
   const [formTitle, setFormTitle] = useState('');
@@ -89,7 +100,7 @@ function Votes({ buildingId }) {
 
       const { data: voteRows, error: vErr } = await supabase
         .from('votes')
-        .select('id, title, description, yes_count, no_count, total_owners, status, closes_at')
+        .select('id, title, description, yes_count, no_count, total_owners, status, closes_at, created_at')
         .eq('building_id', buildingId);
 
       if (vErr) {
@@ -129,6 +140,58 @@ function Votes({ buildingId }) {
   useEffect(() => {
     syncVoteData(true);
   }, [syncVoteData]);
+
+  const voteIdsKey = useMemo(() => (votes || []).map((v) => v.id).join(','), [votes]);
+
+  useEffect(() => {
+    if (!focusVoteId || loading) return;
+
+    let highlightTimer = null;
+    let retryTimer = null;
+
+    const clearHighlight = () => {
+      if (highlightTimer) {
+        clearTimeout(highlightTimer);
+        highlightTimer = null;
+      }
+    };
+
+    const applyFocus = () => {
+      const el = document.getElementById(`vote-card-${focusVoteId}`);
+      if (!el) return false;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightVoteId(focusVoteId);
+      clearHighlight();
+      highlightTimer = setTimeout(() => {
+        setHighlightVoteId(null);
+        onVoteFocusConsumed?.();
+      }, 3200);
+      return true;
+    };
+
+    const initial = setTimeout(() => {
+      if (applyFocus()) return;
+      retryTimer = setTimeout(() => {
+        if (applyFocus()) return;
+        if (!votes.some((v) => v.id === focusVoteId)) onVoteFocusConsumed?.();
+      }, 400);
+    }, 60);
+
+    return () => {
+      clearTimeout(initial);
+      if (retryTimer) clearTimeout(retryTimer);
+      clearHighlight();
+    };
+  }, [focusVoteId, loading, voteIdsKey, votes, onVoteFocusConsumed]);
+
+  function toggleVoteDescExpanded(voteId) {
+    setExpandedDescVoteIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(voteId)) next.delete(voteId);
+      else next.add(voteId);
+      return next;
+    });
+  }
 
   function resetStartForm() {
     setFormTitle('');
@@ -535,10 +598,48 @@ function Votes({ buildingId }) {
             const busy = votingId === v.id;
             const retractBusy = retractingId === v.id;
             const errMsg = voteErrorById[v.id];
+            const descRaw = (v.description || '').trim();
+            const hasDesc = !!descRaw;
+            const longDesc = hasDesc && isLongVoteDescription(v.description);
+            const descExpanded = expandedDescVoteIds.has(v.id);
+            const descClamp = longDesc && !descExpanded;
+            const focused = highlightVoteId === v.id;
 
             return (
-              <div key={v.id} className="vote-card">
-                <div className="vote-q">{v.title}</div>
+              <div key={v.id} id={`vote-card-${v.id}`} className={`vote-card${focused ? ' vote-card--highlight' : ''}`}>
+                {longDesc ? (
+                  <div
+                    className="vote-card-tap"
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={descExpanded}
+                    onClick={() => toggleVoteDescExpanded(v.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        toggleVoteDescExpanded(v.id);
+                      }
+                    }}
+                  >
+                    <div className="vote-q">{v.title}</div>
+                    <p className={descClamp ? 'vote-desc vote-desc--clamp' : 'vote-desc'}>{descRaw}</p>
+                    <button
+                      type="button"
+                      className="vote-desc-toggle"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleVoteDescExpanded(v.id);
+                      }}
+                    >
+                      {descExpanded ? 'Show less' : 'Show more'}
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="vote-q">{v.title}</div>
+                    {hasDesc && <p className="vote-desc">{descRaw}</p>}
+                  </>
+                )}
                 <div className="vbar-wrap">
                   <div className="vbar" style={{ width: `${pct}%` }} />
                 </div>
@@ -557,7 +658,10 @@ function Votes({ buildingId }) {
                       type="button"
                       className="vote-change-mind"
                       disabled={retractBusy || busy}
-                      onClick={() => retractVote(v)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        retractVote(v);
+                      }}
                     >
                       {retractBusy ? 'Removing…' : 'Changed your mind?'}
                     </button>
@@ -576,11 +680,22 @@ function Votes({ buildingId }) {
                       type="button"
                       className="btn-y"
                       disabled={busy || retractBusy}
-                      onClick={() => castVote(v, 'yes')}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        castVote(v, 'yes');
+                      }}
                     >
                       {busy ? '…' : /insurance/i.test(v.title || '') ? 'Yes, renew' : 'Yes, approve it'}
                     </button>
-                    <button type="button" className="btn-n" disabled={busy || retractBusy} onClick={() => castVote(v, 'no')}>
+                    <button
+                      type="button"
+                      className="btn-n"
+                      disabled={busy || retractBusy}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        castVote(v, 'no');
+                      }}
+                    >
                       {busy ? '…' : 'No'}
                     </button>
                   </div>
@@ -616,10 +731,48 @@ function Votes({ buildingId }) {
             const passed = yes > no;
             const badgeClass = passed ? 'badge-green' : 'badge-red';
             const badgeText = passed ? 'Passed' : 'Declined';
+            const descRaw = (v.description || '').trim();
+            const hasDesc = !!descRaw;
+            const longDesc = hasDesc && isLongVoteDescription(v.description);
+            const descExpanded = expandedDescVoteIds.has(v.id);
+            const descClamp = longDesc && !descExpanded;
+            const focused = highlightVoteId === v.id;
             return (
-              <div key={v.id} className="vote-card">
-                <div className="closed-vote-head">
-                  <div className="vote-q closed-vote-title">{v.title}</div>
+              <div key={v.id} id={`vote-card-${v.id}`} className={`vote-card${focused ? ' vote-card--highlight' : ''}`}>
+                <div className={`closed-vote-head${longDesc ? ' closed-vote-head--top' : ''}`}>
+                  {longDesc ? (
+                    <div
+                      className="vote-card-tap closed-vote-tap"
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={descExpanded}
+                      onClick={() => toggleVoteDescExpanded(v.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          toggleVoteDescExpanded(v.id);
+                        }
+                      }}
+                    >
+                      <div className="vote-q closed-vote-title">{v.title}</div>
+                      <p className={descClamp ? 'vote-desc vote-desc--clamp' : 'vote-desc'}>{descRaw}</p>
+                      <button
+                        type="button"
+                        className="vote-desc-toggle"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleVoteDescExpanded(v.id);
+                        }}
+                      >
+                        {descExpanded ? 'Show less' : 'Show more'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="closed-vote-head-text">
+                      <div className="vote-q closed-vote-title">{v.title}</div>
+                      {hasDesc && <p className="vote-desc">{descRaw}</p>}
+                    </div>
+                  )}
                   <span className={`owner-badge ${badgeClass}`}>{badgeText}</span>
                 </div>
                 <div className={`closed-vote-result ${passed ? 'closed-vote-result-pass' : 'closed-vote-result-fail'}`}>
