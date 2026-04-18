@@ -39,9 +39,11 @@ function InterestPage() {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
-    const { error: insErr } = await supabase.from('organising_interest_signals').insert({
+    const label = flat.trim() || 'From web link';
+    const { error: insErr } = await supabase.from('building_flats').insert({
       building_id: buildingId,
-      flat_number: flat.trim() || null,
+      flat_label: label,
+      status: 'not_yet',
     });
     setSubmitting(false);
     if (insErr) {
@@ -61,8 +63,8 @@ function InterestPage() {
           <>
             <h1 className="landing-card-title">Thank you</h1>
             <p className="interest-thanks">
-              Your neighbour will see you as interested. There is nothing else you need to do right now — they may follow up
-              with you in person or by message.
+              Your neighbour will see your flat on their list in Clōse. There is nothing else you need to do right now — they
+              may follow up with you in person or by message.
             </p>
             <Link to="/" className="landing-link">
               Learn more about Clōse
@@ -70,10 +72,10 @@ function InterestPage() {
           </>
         ) : (
           <>
-            <h1 className="landing-card-title">Interested in self-factoring?</h1>
+            <h1 className="landing-card-title">Thinking about self-factoring?</h1>
             <p className="interest-lede">
-              Someone at <strong>{headline}</strong> is using Clōse to organise the building. Tap below to say you are interested
-              — no account required.
+              Someone at <strong>{headline}</strong> is using Clōse to organise the building. Tap below to add your flat to
+              their list — no account required.
             </p>
             <form className="interest-form" onSubmit={handleSubmit}>
               <label className="auth-label" htmlFor="int-flat">
@@ -89,7 +91,7 @@ function InterestPage() {
               />
               {error && <p className="auth-error">{error}</p>}
               <button type="submit" className="landing-btn landing-btn-primary" disabled={submitting}>
-                {submitting ? 'Sending…' : "I'm interested"}
+                {submitting ? 'Sending…' : 'Count me in'}
               </button>
             </form>
           </>

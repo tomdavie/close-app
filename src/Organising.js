@@ -2,34 +2,31 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from './supabase';
 
 const NOTICE_PERIOD_DAYS_DEFAULT = 90;
-const CANVAS_KEY = (buildingId) => `organisingNeighbourCanvas:v1:${buildingId}`;
 const NOTICE_KEY = (buildingId) => `organisingNotice:v1:${buildingId}`;
 const EARLY_LIVE_KEY = (buildingId) => `organisingEarlyLive:v1:${buildingId}`;
 
 const FLAT_STATUSES = [
-  { id: 'not_contacted', label: 'Not contacted' },
-  { id: 'interested', label: 'Interested' },
-  { id: 'committed', label: 'Committed' },
-  { id: 'against', label: 'Against' },
+  { id: 'not_yet', label: 'Not yet' },
+  { id: 'signed_up', label: 'Signed up' },
 ];
 
-function newId() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+function addDays(isoDate, days) {
+  const d = new Date(isoDate);
+  d.setDate(d.getDate() + days);
+  return d;
 }
 
-function loadCanvas(buildingId) {
-  try {
-    const raw = localStorage.getItem(CANVAS_KEY(buildingId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (_e) {
-    return [];
-  }
+function normalizeStatus(s) {
+  return (s || '').toLowerCase() === 'signed_up' ? 'signed_up' : 'not_yet';
 }
 
-function saveCanvas(buildingId, rows) {
-  localStorage.setItem(CANVAS_KEY(buildingId), JSON.stringify(rows));
+function mapRow(r) {
+  return {
+    id: r.id,
+    flat: r.flat_label ?? '',
+    name: r.resident_name ?? '',
+    status: normalizeStatus(r.status),
+  };
 }
 
 function loadNotice(buildingId) {
@@ -45,16 +42,10 @@ function saveNotice(buildingId, notice) {
   localStorage.setItem(NOTICE_KEY(buildingId), JSON.stringify(notice));
 }
 
-function addDays(isoDate, days) {
-  const d = new Date(isoDate);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
 function Organising({ buildingId, building, onLogout, onEnteredLive }) {
   const [canvas, setCanvas] = useState([]);
   const [ownerRows, setOwnerRows] = useState([]);
-  const [interestCount, setInterestCount] = useState(0);
+  const [canvasLoading, setCanvasLoading] = useState(true);
   const [tipsOpen, setTipsOpen] = useState(false);
   const [learnOpen, setLearnOpen] = useState(false);
   const [selectedFlatId, setSelectedFlatId] = useState(null);
@@ -66,35 +57,23 @@ function Organising({ buildingId, building, onLogout, onEnteredLive }) {
   const approxFlats = Math.max(1, Number(building?.approx_flat_count) || canvas.length || 6);
 
   const refreshData = useCallback(async () => {
-    let rows = loadCanvas(buildingId);
-    const { data: signals } = await supabase
-      .from('organising_interest_signals')
-      .select('id, flat_number, created_at')
+    setCanvasLoading(true);
+    const { data: flatRows, error: flatErr } = await supabase
+      .from('building_flats')
+      .select('id, flat_label, resident_name, status, created_at')
       .eq('building_id', buildingId)
-      .order('created_at', { ascending: false });
-    setInterestCount((signals || []).length);
+      .order('created_at', { ascending: true });
 
-    const seen = new Set(rows.map((r) => (r.flat || '').trim().toLowerCase()).filter(Boolean));
-    for (const s of signals || []) {
-      const hint = (s.flat_number || '').trim();
-      const key = hint.toLowerCase();
-      if (key && seen.has(key)) continue;
-      if (key) seen.add(key);
-      rows = [
-        ...rows,
-        {
-          id: String(s.id || newId()),
-          flat: hint || 'Interested neighbour',
-          name: '',
-          status: 'interested',
-        },
-      ];
+    if (flatErr) {
+      if (flatErr.code !== '42P01') setFlash(flatErr.message);
+      setCanvas([]);
+    } else {
+      setCanvas((flatRows || []).map(mapRow));
     }
-    setCanvas(rows);
-    saveCanvas(buildingId, rows);
 
     const { data: owners } = await supabase.from('owners').select('id, name, flat, user_id, status').eq('building_id', buildingId);
     setOwnerRows((owners || []).filter((o) => (o.status || '').toLowerCase() !== 'removed'));
+    setCanvasLoading(false);
   }, [buildingId]);
 
   useEffect(() => {
@@ -109,18 +88,11 @@ function Organising({ buildingId, building, onLogout, onEnteredLive }) {
 
   const joinedCount = useMemo(() => ownerRows.filter((o) => o.user_id).length, [ownerRows]);
 
-  const summary = useMemo(() => {
-    const counts = { not_contacted: 0, interested: 0, committed: 0, against: 0 };
-    for (const r of canvas) {
-      const k = (r.status || 'not_contacted').toLowerCase();
-      if (counts[k] !== undefined) counts[k] += 1;
-    }
-    return counts;
-  }, [canvas]);
+  const signedUpCount = useMemo(() => canvas.filter((r) => r.status === 'signed_up').length, [canvas]);
+  const totalFlats = canvas.length;
+  const signedUpSummary = `${signedUpCount} of ${totalFlats} flats signed up`;
 
-  const totalFlats = Math.max(canvas.length, 1);
-  const committedShare = summary.committed / totalFlats;
-  const stage3Unlocked = committedShare > 0.5;
+  const stage3Unlocked = totalFlats > 0 && signedUpCount / totalFlats > 0.5;
   const joinRatio = approxFlats > 0 ? joinedCount / approxFlats : 0;
   const stage4Unlocked = joinedCount >= approxFlats || joinRatio >= 0.85;
   const endDate = notice.sentAt ? addDays(`${notice.sentAt}T12:00:00.000Z`, notice.periodDays) : null;
@@ -129,31 +101,58 @@ function Organising({ buildingId, building, onLogout, onEnteredLive }) {
 
   const estimatedSaving = approxFlats * 150;
 
-  function persistCanvas(next) {
-    setCanvas(next);
-    saveCanvas(buildingId, next);
+  async function addFlat() {
+    const { data, error } = await supabase
+      .from('building_flats')
+      .insert({
+        building_id: buildingId,
+        flat_label: '',
+        resident_name: '',
+        status: 'not_yet',
+      })
+      .select('id, flat_label, resident_name, status')
+      .single();
+    if (error) {
+      setFlash(error.message);
+      return;
+    }
+    setCanvas((prev) => [...prev, mapRow(data)]);
   }
 
-  function addFlat() {
-    persistCanvas([...canvas, { id: newId(), flat: '', name: '', status: 'not_contacted' }]);
-  }
-
-  function updateFlat(id, patch) {
-    persistCanvas(canvas.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  async function updateFlat(id, patch) {
+    const row = canvas.find((r) => r.id === id);
+    if (!row) return;
+    const nextFlat = patch.flat !== undefined ? patch.flat : row.flat;
+    const nextName = patch.name !== undefined ? patch.name : row.name;
+    const nextStatus = normalizeStatus(patch.status !== undefined ? patch.status : row.status);
+    const { error } = await supabase
+      .from('building_flats')
+      .update({
+        flat_label: nextFlat,
+        resident_name: nextName || null,
+        status: nextStatus,
+      })
+      .eq('id', id)
+      .eq('building_id', buildingId);
+    if (error) {
+      setFlash(error.message);
+      return;
+    }
+    setCanvas((prev) => prev.map((r) => (r.id === id ? { ...r, flat: nextFlat, name: nextName, status: nextStatus } : r)));
   }
 
   const shareUrl = typeof window !== 'undefined' ? `${window.location.origin}/interest/${buildingId}` : '';
 
   async function copyNudge() {
-    const targets = canvas.filter((c) => (c.status || 'not_contacted') !== 'committed');
+    const targets = canvas.filter((c) => c.status !== 'signed_up');
     if (targets.length === 0) {
-      setFlash('Everyone on your canvas is already marked committed — nice work.');
+      setFlash('Every flat on your list is marked signed up — nice work.');
       return;
     }
     const text = targets
       .map(
         (c) =>
-          `Hi — quick note about our building and Clōse (we're exploring self-factoring). Flat ${c.flat || '?'}: happy to chat when suits you.`
+          `Hi — quick note about our building and Clōse (we're exploring self-factoring). Flat ${c.flat || '?'}: when you're ready, you can sign up with the link we shared. Happy to chat.`
       )
       .join('\n\n');
     try {
@@ -174,15 +173,15 @@ function Organising({ buildingId, building, onLogout, onEnteredLive }) {
   }
 
   async function copyInvites() {
-    const committed = canvas.filter((c) => c.status === 'committed');
+    const signedUp = canvas.filter((c) => c.status === 'signed_up');
     const joinUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/join/${buildingId}`;
-    const lines = committed.map(
-      (c) => `Flat ${c.flat || '?'} — you've said you're in. Create your account and join the building here: ${joinUrl}`
+    const lines = signedUp.map(
+      (c) => `Flat ${c.flat || '?'} — thanks for signing up on the canvas. Create your account and join the building here: ${joinUrl}`
     );
     const text = lines.length ? lines.join('\n\n') : `Join our building on Clōse (we're organising self-factoring):\n${joinUrl}`;
     try {
       await navigator.clipboard.writeText(text);
-      setFlash('Invite message copied — send it to each committed neighbour.');
+      setFlash('Invite message copied — send it to each neighbour who has signed up on the canvas.');
     } catch (_e) {
       setFlash('Could not copy.');
     }
@@ -243,8 +242,8 @@ The owners (via Clōse organising workspace)`;
 
   const stages = [
     { n: 1, title: 'Building added', done: true },
-    { n: 2, title: 'Neighbours canvassed', done: canvas.length > 0 || interestCount > 0 },
-    { n: 3, title: 'Majority committed', done: stage3Unlocked },
+    { n: 2, title: 'Neighbours canvassed', done: totalFlats > 0 },
+    { n: 3, title: 'Majority signed up', done: stage3Unlocked },
     { n: 4, title: 'Factor notice sent', done: !!notice.sentAt },
     { n: 5, title: 'Building live', done: false },
   ];
@@ -254,7 +253,7 @@ The owners (via Clōse organising workspace)`;
   else if (notice.sentAt) currentStage = 4;
   else if (stage4Unlocked) currentStage = 4;
   else if (stage3Unlocked) currentStage = 3;
-  else if (canvas.length > 0 || interestCount > 0) currentStage = 2;
+  else if (totalFlats > 0) currentStage = 2;
 
   return (
     <div className="app organising-app">
@@ -288,8 +287,8 @@ The owners (via Clōse organising workspace)`;
         <section className="organising-section">
           <h2 className="organising-h">Stage 2 — Neighbour canvas</h2>
           <p className="organising-p">
-            Add each flat, then tap a row to update how the conversation is going. This is just for you and your committee —
-            keep it kind and honest.
+            Add each flat, then tap a row to mark whether they&apos;ve signed up on Clōse yet. This is for you and your
+            committee — keep it kind and practical.
           </p>
           <button type="button" className="landing-btn landing-btn-secondary organising-btn" onClick={addFlat}>
             Add flat
@@ -299,19 +298,17 @@ The owners (via Clōse organising workspace)`;
           </button>
           <p className="organising-hint organising-mono">{shareUrl}</p>
 
-          <p className="organising-summary">
-            {summary.committed} committed · {summary.interested} interested · {summary.not_contacted} not yet contacted
-            {summary.against ? ` · ${summary.against} not keen` : ''}
-            {interestCount ? ` · ${interestCount} tap-in from link` : ''}
-          </p>
-          {canvas.some((c) => (c.status || 'not_contacted') !== 'committed') && (
+          <p className="organising-summary">{signedUpSummary}</p>
+          {canvas.some((c) => c.status !== 'signed_up') && (
             <button type="button" className="landing-link organising-btn-text organising-mb" onClick={copyNudge}>
-              Copy gentle nudge for flats not yet committed
+              Copy gentle nudge for flats not yet signed up
             </button>
           )}
 
           <div className="organising-canvas card">
-            {canvas.length === 0 ? (
+            {canvasLoading ? (
+              <p className="organising-p">Loading flats…</p>
+            ) : canvas.length === 0 ? (
               <p className="organising-p">No flats yet — add your first flat above.</p>
             ) : (
               canvas.map((row) => (
@@ -325,7 +322,7 @@ The owners (via Clōse organising workspace)`;
                     <span className="organising-flat-label">{row.flat || 'Flat'}</span>
                     <span className="organising-flat-name">{row.name || '—'}</span>
                     <span className="organising-flat-status">
-                      {FLAT_STATUSES.find((s) => s.id === row.status)?.label || 'Not contacted'}
+                      {FLAT_STATUSES.find((s) => s.id === row.status)?.label || 'Not yet'}
                     </span>
                   </div>
                   {selectedFlatId === row.id && (
@@ -345,7 +342,7 @@ The owners (via Clōse organising workspace)`;
                       <label className="auth-label">Status</label>
                       <select
                         className="auth-input"
-                        value={row.status || 'not_contacted'}
+                        value={row.status || 'not_yet'}
                         onChange={(e) => updateFlat(row.id, { status: e.target.value })}
                       >
                         {FLAT_STATUSES.map((s) => (
@@ -377,21 +374,24 @@ The owners (via Clōse organising workspace)`;
         </section>
 
         <section className={`organising-section ${stage3Unlocked ? '' : 'organising-locked'}`}>
-          <h2 className="organising-h">Stage 3 — Majority committed</h2>
+          <h2 className="organising-h">Stage 3 — Majority signed up</h2>
           {!stage3Unlocked ? (
-            <p className="organising-p">Unlocks when more than half of the flats on your canvas are marked &quot;Committed&quot;.</p>
+            <p className="organising-p">
+              Unlocks when more than half of the flats on your list are marked &quot;Signed up&quot; (they&apos;ve joined Clōse, or
+              you&apos;ve confirmed they&apos;re on board the same way).
+            </p>
           ) : (
             <>
               <p className="organising-p">
-                You have enough committed neighbours to move forward. Send each of them a proper join link so they appear in
-                Clōse as owners.
+                Most flats show as signed up — great. Send each of those neighbours a proper join link so they appear in Clōse
+                as owners.
               </p>
               <button type="button" className="landing-btn landing-btn-primary organising-btn" onClick={copyInvites}>
                 Send formal invites (copy message)
               </button>
               <p className="organising-p organising-nudge">
-                Not yet joined: {joinedCount} of ~{approxFlats} accounts linked. Keep nudging gently — people read messages in
-                their own time.
+                Accounts linked in Clōse: {joinedCount} of ~{approxFlats}. Keep nudging gently — people read messages in their
+                own time.
               </p>
             </>
           )}
@@ -477,9 +477,9 @@ The owners (via Clōse organising workspace)`;
           </button>
           {learnOpen && (
             <p className="feasibility-learn-body organising-p">
-              Self-factoring is a journey. Clōse breaks it into stages so nothing feels like a single giant form — you canvas
-              neighbours, gather commitments, give notice properly, then open the tools you will use for years. Skip nothing
-              that your solicitor would want you to take seriously.
+              Self-factoring is a journey. Clōse breaks it into stages so nothing feels like a single giant form — you list
+              flats, see who has signed up, give notice properly, then open the tools you will use for years. Skip nothing that
+              your solicitor would want you to take seriously.
             </p>
           )}
         </section>
