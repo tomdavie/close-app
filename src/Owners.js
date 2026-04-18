@@ -530,6 +530,100 @@ We recommend speaking to a solicitor before taking this step.`;
     setMessages((prev) => prev.filter((m) => m.id !== msg.id));
   }
 
+  function renderOwnerModals() {
+    return (
+      <>
+        {formalModalOwner && (
+          <div className="owners-modal-backdrop" role="dialog" aria-modal="true">
+            <div className="owners-modal">
+              <div className="fund-section-head">
+                <div className="slabel">Formal notice</div>
+                <button type="button" className="fund-form-cancel owners-modal-close-btn" onClick={() => setFormalModalOwner(null)}>
+                  Close
+                </button>
+              </div>
+              <textarea className="auth-input auth-input-textarea owners-modal-text" readOnly value={formalNoticeText(formalModalOwner)} />
+              <div className="fund-form-actions">
+                <button
+                  type="button"
+                  className="fund-form-submit"
+                  onClick={async () => {
+                    await copyToClipboard(formalNoticeText(formalModalOwner), 'Formal notice copied.');
+                    setModalCopied('Copied!');
+                  }}
+                >
+                  Copy notice
+                </button>
+                {modalCopied && <span className="owners-copied-text">{modalCopied}</span>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {nplModalOwner && (
+          <div className="owners-modal-backdrop" role="dialog" aria-modal="true">
+            <div className="owners-modal">
+              <div className="fund-section-head">
+                <div className="slabel">Notice of Potential Liability</div>
+                <button type="button" className="fund-form-cancel owners-modal-close-btn" onClick={() => setNplModalOwner(null)}>
+                  Close
+                </button>
+              </div>
+              <textarea className="auth-input auth-input-textarea owners-modal-text" readOnly value={nplText(nplModalOwner)} />
+              <div className="fund-form-actions">
+                <button
+                  type="button"
+                  className="fund-form-submit"
+                  onClick={async () => {
+                    await copyToClipboard(nplText(nplModalOwner), 'NPL guidance copied.');
+                    setModalCopied('Copied!');
+                  }}
+                >
+                  Copy guidance
+                </button>
+                <button
+                  type="button"
+                  className="owners-action-btn"
+                  onClick={() => window.open('https://www.ros.gov.uk', '_blank', 'noopener,noreferrer')}
+                >
+                  Go to ros.gov.uk
+                </button>
+                {modalCopied && <span className="owners-copied-text">{modalCopied}</span>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {reminderModalOwner && (
+          <div className="owners-modal-backdrop" role="dialog" aria-modal="true">
+            <div className="owners-modal">
+              <div className="fund-section-head">
+                <div className="slabel">Friendly reminder</div>
+                <button type="button" className="fund-form-cancel owners-modal-close-btn" onClick={() => setReminderModalOwner(null)}>
+                  Close
+                </button>
+              </div>
+              <textarea className="auth-input auth-input-textarea owners-modal-text" readOnly value={reminderTemplate(reminderModalOwner)} />
+              <div className="fund-form-actions">
+                <button
+                  type="button"
+                  className="fund-form-submit"
+                  onClick={async () => {
+                    await copyToClipboard(reminderTemplate(reminderModalOwner), 'Reminder copied.');
+                    setModalCopied('Copied!');
+                  }}
+                >
+                  Copy message
+                </button>
+                {modalCopied && <span className="owners-copied-text">{modalCopied}</span>}
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
+
   if (loading) {
     return (
       <main className="home">
@@ -539,6 +633,7 @@ We recommend speaking to a solicitor before taking this step.`;
             <div className="q-company">Loading owners…</div>
           </div>
         </section>
+        {renderOwnerModals()}
       </main>
     );
   }
@@ -772,93 +867,7 @@ We recommend speaking to a solicitor before taking this step.`;
         </section>
       )}
 
-      {formalModalOwner && (
-        <div className="owners-modal-backdrop" role="dialog" aria-modal="true">
-          <div className="owners-modal">
-            <div className="fund-section-head">
-              <div className="slabel">Formal notice</div>
-              <button type="button" className="fund-form-cancel owners-modal-close-btn" onClick={() => setFormalModalOwner(null)}>
-                Close
-              </button>
-            </div>
-            <textarea className="auth-input auth-input-textarea owners-modal-text" readOnly value={formalNoticeText(formalModalOwner)} />
-            <div className="fund-form-actions">
-              <button
-                type="button"
-                className="fund-form-submit"
-                onClick={async () => {
-                  await copyToClipboard(formalNoticeText(formalModalOwner), 'Formal notice copied.');
-                  setModalCopied('Copied!');
-                }}
-              >
-                Copy notice
-              </button>
-              {modalCopied && <span className="owners-copied-text">{modalCopied}</span>}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {nplModalOwner && (
-        <div className="owners-modal-backdrop" role="dialog" aria-modal="true">
-          <div className="owners-modal">
-            <div className="fund-section-head">
-              <div className="slabel">Notice of Potential Liability</div>
-              <button type="button" className="fund-form-cancel owners-modal-close-btn" onClick={() => setNplModalOwner(null)}>
-                Close
-              </button>
-            </div>
-            <textarea className="auth-input auth-input-textarea owners-modal-text" readOnly value={nplText(nplModalOwner)} />
-            <div className="fund-form-actions">
-              <button
-                type="button"
-                className="fund-form-submit"
-                onClick={async () => {
-                  await copyToClipboard(nplText(nplModalOwner), 'NPL guidance copied.');
-                  setModalCopied('Copied!');
-                }}
-              >
-                Copy guidance
-              </button>
-              <button
-                type="button"
-                className="owners-action-btn"
-                onClick={() => window.open('https://www.ros.gov.uk', '_blank', 'noopener,noreferrer')}
-              >
-                Go to ros.gov.uk
-              </button>
-              {modalCopied && <span className="owners-copied-text">{modalCopied}</span>}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {reminderModalOwner && (
-        <div className="owners-modal-backdrop" role="dialog" aria-modal="true">
-          <div className="owners-modal">
-            <div className="fund-section-head">
-              <div className="slabel">Friendly reminder</div>
-              <button type="button" className="fund-form-cancel owners-modal-close-btn" onClick={() => setReminderModalOwner(null)}>
-                Close
-              </button>
-            </div>
-            <textarea className="auth-input auth-input-textarea owners-modal-text" readOnly value={reminderTemplate(reminderModalOwner)} />
-            <div className="fund-form-actions">
-              <button
-                type="button"
-                className="fund-form-submit"
-                onClick={async () => {
-                  await copyToClipboard(reminderTemplate(reminderModalOwner), 'Reminder copied.');
-                  setModalCopied('Copied!');
-                }}
-              >
-                Copy message
-              </button>
-              {modalCopied && <span className="owners-copied-text">{modalCopied}</span>}
-            </div>
-          </div>
-        </div>
-      )}
+      {renderOwnerModals()}
     </main>
   );
 }

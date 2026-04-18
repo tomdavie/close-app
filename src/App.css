@@ -26,6 +26,7 @@ body {
 }
 
 .app {
+  position: relative;
   max-width: 400px;
   width: 100%;
   background: #f6efe3;
@@ -194,11 +195,55 @@ body {
   color: #9a8478;
 }
 
-.nav { display: flex; background: #fbf8f2; border-bottom: 1px solid #e7d9c5; }
-.nav-item { flex: 1; padding: 10px 4px 8px; text-align: center; cursor: pointer; font-size: 10px; font-weight: 700; color: #aaa; border: none; background: none; font-family: 'Nunito', sans-serif; text-transform: uppercase; letter-spacing: 0.02em; }
-.nav-item.active { color: #a3482f; border-bottom: 2px solid #a3482f; }
+.content {
+  padding: 16px;
+  padding-bottom: 92px;
+}
 
-.content { padding: 16px; }
+.bottom-nav {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  width: min(400px, calc(100vw - 40px));
+  background: #fff;
+  border-top: 1px solid #e9ddcc;
+  box-shadow: 0 -5px 18px rgba(64, 42, 28, 0.1);
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  z-index: 30;
+}
+
+.bottom-nav-item {
+  border: none;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: #8f877f;
+  font-family: 'Nunito', sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.1;
+  padding: 4px 2px;
+  cursor: pointer;
+}
+
+.bottom-nav-item svg {
+  width: 23px;
+  height: 23px;
+}
+
+.bottom-nav-item.active {
+  color: var(--cl-rust);
+}
+
+.bottom-nav-item:hover {
+  color: #865441;
+}
 
 .home {
   display: flex;
@@ -247,6 +292,7 @@ body {
   border: 1px solid #e7d7c1;
   border-radius: 14px;
   padding: 14px;
+  position: relative;
 }
 
 .metric-val {
@@ -276,6 +322,38 @@ body {
 
 .metric--with-invite-btn {
   position: relative;
+}
+
+.metric--tappable {
+  transition: filter 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+
+.metric--is-link {
+  cursor: pointer;
+}
+
+.metric--is-link:hover {
+  filter: brightness(0.98);
+  border-color: #dbc6aa;
+  box-shadow: 0 5px 12px rgba(81, 53, 40, 0.08);
+}
+
+.metric--is-link:active {
+  filter: brightness(0.95);
+}
+
+.metric--is-link:focus-visible {
+  outline: 2px solid rgba(26, 122, 101, 0.5);
+  outline-offset: 2px;
+}
+
+.metric-link-arrow {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  color: #8b6a57;
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .metric-invite-btn {
@@ -490,6 +568,12 @@ button.alert-strip--tappable:hover .alert-strip-arrow {
   font-size: 11px;
   font-weight: 700;
   color: #8f6a56;
+}
+
+.section-timeframe {
+  font-size: 11px;
+  font-weight: 700;
+  color: #907360;
 }
 
 .owner-row {

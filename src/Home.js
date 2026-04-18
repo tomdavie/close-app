@@ -84,7 +84,7 @@ function heroGreetingLine(user) {
   return `${timeOfDayGreeting()}, ${name}`;
 }
 
-function Home({ buildingId, onOpenInvite, onVoteAlertClick }) {
+function Home({ buildingId, onOpenInvite, onVoteAlertClick, onOpenFund, onOpenOwners }) {
   const [authUser, setAuthUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -335,15 +335,21 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick }) {
     };
   });
 
-  const activityVotes = [...votes].sort((a, b) => {
+  const thirtyDaysAgoMs = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const activityVotes = [...votes]
+    .filter((v) => {
+      const ref = new Date((v.status || '').toLowerCase() === 'closed' ? v.closes_at : v.created_at || v.closes_at).getTime();
+      return Number.isFinite(ref) && ref >= thirtyDaysAgoMs;
+    })
+    .sort((a, b) => {
     const ta = new Date(
       (a.status || '').toLowerCase() === 'closed' ? a.closes_at : a.created_at || a.closes_at
     ).getTime();
     const tb = new Date(
       (b.status || '').toLowerCase() === 'closed' ? b.closes_at : b.created_at || b.closes_at
     ).getTime();
-    return tb - ta;
-  });
+      return tb - ta;
+    });
 
   const activities = activityVotes.slice(0, 8).map((v, i) => {
     const open = (v.status || '').toLowerCase() === 'open';
@@ -434,17 +440,55 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick }) {
       </section>
 
       <section className="mgrid">
-        <div className="metric">
+        <div
+          className={`metric metric--tappable${typeof onOpenFund === 'function' ? ' metric--is-link' : ''}`}
+          role={typeof onOpenFund === 'function' ? 'button' : undefined}
+          tabIndex={typeof onOpenFund === 'function' ? 0 : undefined}
+          onClick={typeof onOpenFund === 'function' ? onOpenFund : undefined}
+          onKeyDown={
+            typeof onOpenFund === 'function'
+              ? (e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onOpenFund();
+                  }
+                }
+              : undefined
+          }
+        >
           <div className="metric-val">{error ? '—' : formatMoney(balance)}</div>
           <div className="metric-label">Building fund</div>
           <div className="metric-tag">{error ? '—' : 'Live from transactions'}</div>
+          {typeof onOpenFund === 'function' && (
+            <span className="metric-link-arrow" aria-hidden>
+              →
+            </span>
+          )}
         </div>
-        <div className={`metric${onOpenInvite ? ' metric--with-invite-btn' : ''}`}>
+        <div
+          className={`metric${onOpenInvite ? ' metric--with-invite-btn' : ''}${typeof onOpenOwners === 'function' ? ' metric--tappable metric--is-link' : ''}`}
+          role={typeof onOpenOwners === 'function' ? 'button' : undefined}
+          tabIndex={typeof onOpenOwners === 'function' ? 0 : undefined}
+          onClick={typeof onOpenOwners === 'function' ? onOpenOwners : undefined}
+          onKeyDown={
+            typeof onOpenOwners === 'function'
+              ? (e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onOpenOwners();
+                  }
+                }
+              : undefined
+          }
+        >
           {onOpenInvite && (
             <button
               type="button"
               className="metric-invite-btn"
-              onClick={onOpenInvite}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenInvite();
+              }}
               aria-label="Invite neighbours"
               title="Invite neighbours"
             >
@@ -460,6 +504,11 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick }) {
               ? '—'
               : `${invitePending} invite${invitePending === 1 ? '' : 's'} pending`}
           </div>
+          {typeof onOpenOwners === 'function' && (
+            <span className="metric-link-arrow" aria-hidden>
+              →
+            </span>
+          )}
         </div>
       </section>
 
@@ -505,13 +554,16 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick }) {
       </section>
 
       <section className="home-section">
-        <div className="slabel">{"What's been happening"}</div>
+        <div className="fund-section-head">
+          <div className="slabel">{"What's been happening"}</div>
+          <div className="section-timeframe">Last 30 days</div>
+        </div>
         <div className="card">
           {activities.length === 0 ? (
             <div className="act-item">
               <div className="act-dot badge-moss">·</div>
               <div>
-                <div className="act-text">No vote activity yet</div>
+                <div className="act-text">No vote activity in the last 30 days</div>
                 <div className="act-time">{"When votes open and close, they'll show up here"}</div>
               </div>
             </div>

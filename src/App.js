@@ -63,7 +63,7 @@ function AuthShell({ authMode, setAuthMode }) {
             Cl<em>ō</em>se
           </div>
         </div>
-        <p className="topbar-auth-tagline">Self-factoring, made human.</p>
+        <p className="topbar-auth-tagline">Your building, your rules.</p>
       </div>
       <div className="content content-auth">
         {authMode === 'login' ? (
@@ -105,6 +105,7 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
   const hiddenStorageKey = session?.user?.id ? `hiddenNotifications:${session.user.id}:${buildingId}` : null;
 
   useEffect(() => {
+    setShowNotifications(false);
     if (screen !== 'votes') setVoteFocusId(null);
     if (screen !== 'owners') {
       setOwnerFocusId(null);
@@ -357,6 +358,11 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
     setScreen('home');
   }
 
+  function handleTabChange(nextScreen) {
+    setShowNotifications(false);
+    setScreen(nextScreen);
+  }
+
   return (
     <div className="app">
       <div className="topbar">
@@ -398,7 +404,12 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
                 ← Back
               </button>
             ) : (
-              <button type="button" className="topbar-icon-btn topbar-settings-link" aria-label="Settings" onClick={() => setScreen('settings')}>
+              <button
+                type="button"
+                className="topbar-icon-btn topbar-settings-link"
+                aria-label="Settings"
+                onClick={() => handleTabChange('settings')}
+              >
                 <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden focusable="false">
                   <path
                     d="M12 8.4a3.6 3.6 0 1 1 0 7.2 3.6 3.6 0 0 1 0-7.2Z"
@@ -422,7 +433,7 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
         <div className="topbar-user">{displayNameFromSession(session)}</div>
         <div className="topbar-building">{buildingLine}</div>
         <span className="topbar-tag">
-          Self-factored · {ownerCount == null ? '…' : ownerCount} owner{ownerCount === 1 ? '' : 's'}
+          Running your building together · {ownerCount == null ? '…' : ownerCount} owner{ownerCount === 1 ? '' : 's'}
         </span>
         {showNotifications && (
           <div className="topbar-notif-panel">
@@ -434,10 +445,6 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
             </div>
             {notifLoading ? (
               <div className="topbar-notif-empty">Loading…</div>
-            ) : markAllFlash ? (
-              <div className="topbar-notif-empty-wrap">
-                <div className="topbar-notif-empty">All caught up!</div>
-              </div>
             ) : markAllFlash ? (
               <div className="topbar-notif-empty-wrap">
                 <div className="topbar-notif-empty">All caught up!</div>
@@ -470,26 +477,6 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
         )}
       </div>
 
-      {screen !== 'settings' && screen !== 'invite' && (
-        <div className="nav">
-          <button className={screen === 'home' ? 'nav-item active' : 'nav-item'} onClick={() => setScreen('home')}>
-            ⌂ Home
-          </button>
-          <button className={screen === 'owners' ? 'nav-item active' : 'nav-item'} onClick={() => setScreen('owners')}>
-            ◎ Owners
-          </button>
-          <button className={screen === 'votes' ? 'nav-item active' : 'nav-item'} onClick={() => setScreen('votes')}>
-            ✓ Votes
-          </button>
-          <button className={screen === 'quotes' ? 'nav-item active' : 'nav-item'} onClick={() => setScreen('quotes')}>
-            £ Quotes
-          </button>
-          <button className={screen === 'fund' ? 'nav-item active' : 'nav-item'} onClick={() => setScreen('fund')}>
-            ◈ Fund
-          </button>
-        </div>
-      )}
-
       <div className="content">
         {screen === 'settings' && (
           <BuildingSettings session={session} onBuildingUpdated={onBuildingUpdated} onLogout={onLogout} />
@@ -503,6 +490,8 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
               setVoteFocusId(voteId);
               setScreen('votes');
             }}
+            onOpenFund={() => handleTabChange('fund')}
+            onOpenOwners={() => handleTabChange('owners')}
           />
         )}
         {screen === 'owners' && (
@@ -527,6 +516,45 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
         )}
         {screen === 'fund' && <Fund buildingId={buildingId} building={building} />}
       </div>
+
+      {screen !== 'settings' && screen !== 'invite' && (
+        <nav className="bottom-nav" aria-label="Primary">
+          <button className={screen === 'home' ? 'bottom-nav-item active' : 'bottom-nav-item'} onClick={() => handleTabChange('home')}>
+            <svg viewBox="0 0 24 24" aria-hidden focusable="false">
+              <path d="M3 10.5 12 3l9 7.5v9a1 1 0 0 1-1 1h-5.5v-6.2h-5v6.2H4a1 1 0 0 1-1-1v-9Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span>Home</span>
+          </button>
+          <button className={screen === 'owners' ? 'bottom-nav-item active' : 'bottom-nav-item'} onClick={() => handleTabChange('owners')}>
+            <svg viewBox="0 0 24 24" aria-hidden focusable="false">
+              <path d="M9 12.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Zm7.2-1.1a2.6 2.6 0 1 0 0-5.2 2.6 2.6 0 0 0 0 5.2Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              <path d="M3.5 19.5a5.8 5.8 0 0 1 11 0m1.6 0a4.6 4.6 0 0 1 4.4-3.1" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+            <span>Owners</span>
+          </button>
+          <button className={screen === 'votes' ? 'bottom-nav-item active' : 'bottom-nav-item'} onClick={() => handleTabChange('votes')}>
+            <svg viewBox="0 0 24 24" aria-hidden focusable="false">
+              <rect x="4" y="3.5" width="16" height="17" rx="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+              <path d="m8 12.3 2.5 2.6L16.2 9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span>Votes</span>
+          </button>
+          <button className={screen === 'quotes' ? 'bottom-nav-item active' : 'bottom-nav-item'} onClick={() => handleTabChange('quotes')}>
+            <svg viewBox="0 0 24 24" aria-hidden focusable="false">
+              <path d="m14.8 5.2 4 4-7.9 7.9-4.3.4.4-4.3 7.8-8Zm0 0 1.4-1.4a1.9 1.9 0 0 1 2.7 0l1.3 1.3a1.9 1.9 0 0 1 0 2.7l-1.4 1.4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span>Quotes</span>
+          </button>
+          <button className={screen === 'fund' ? 'bottom-nav-item active' : 'bottom-nav-item'} onClick={() => handleTabChange('fund')}>
+            <svg viewBox="0 0 24 24" aria-hidden focusable="false">
+              <rect x="3" y="6" width="18" height="12" rx="2.4" fill="none" stroke="currentColor" strokeWidth="1.8" />
+              <circle cx="15.5" cy="12" r="1.8" fill="none" stroke="currentColor" strokeWidth="1.8" />
+              <path d="M3 10h3m12 4h3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+            <span>Fund</span>
+          </button>
+        </nav>
+      )}
     </div>
   );
 }
