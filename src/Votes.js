@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { supabase } from './supabase';
-import { notifyAllOwners } from './notifications';
+import { notifyOtherOwners } from './notifications';
 
 function daysUntilClose(dateStr) {
   if (!dateStr) return null;
@@ -55,6 +55,7 @@ function Votes({ buildingId, focusVoteId, onVoteFocusConsumed }) {
   const [votingId, setVotingId] = useState(null);
   const [retractingId, setRetractingId] = useState(null);
   const [voteErrorById, setVoteErrorById] = useState({});
+  const [currentUserId, setCurrentUserId] = useState(null);
   const thanksTimeoutsRef = useRef({});
 
   const [expandedDescVoteIds, setExpandedDescVoteIds] = useState(() => new Set());
@@ -85,6 +86,7 @@ function Votes({ buildingId, focusVoteId, onVoteFocusConsumed }) {
         }
         return false;
       }
+      setCurrentUserId(authData?.user?.id ?? null);
 
       const email = authData?.user?.email;
       let oid = null;
@@ -253,10 +255,12 @@ function Votes({ buildingId, focusVoteId, onVoteFocusConsumed }) {
       setFormError(insErr.message);
       return;
     }
-    await notifyAllOwners({
+    await notifyOtherOwners({
       buildingId,
+      senderUserId: currentUserId,
       title: `New vote opened`,
       message: title,
+      type: 'vote',
       targetScreen: 'votes',
       targetId: voteRow?.id || null,
       eventKey: voteRow?.id ? `vote_created:${voteRow.id}` : null,

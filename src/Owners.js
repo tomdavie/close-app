@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabase';
-import { notifyAdmins, notifyAllOwners } from './notifications';
+import { notifyAdmins, notifyOtherOwners } from './notifications';
 
 const AVATAR_STYLES = [
   { background: '#E0F2EC', color: '#0D4F42' },
@@ -413,15 +413,15 @@ function Owners({ buildingId, focusOwnerId, openMessagesOnFocus, onOwnerFocusCon
     }
     setMessageDraft('');
     setMessages((prev) => [...prev, row]);
-    const preview = `${text.slice(0, 50)}...`;
-    await notifyAllOwners({
+    const preview = text.length > 60 ? `${text.slice(0, 60)}...` : text;
+    await notifyOtherOwners({
       buildingId,
+      senderUserId: currentUser?.id ?? null,
       title: `New message from ${senderName}`,
       message: preview,
       type: 'message',
       targetScreen: 'messages',
       targetId: 'messages',
-      excludeUserId: currentUser?.id ?? null,
     });
   }
 

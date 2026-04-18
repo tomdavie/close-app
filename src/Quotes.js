@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { supabase } from './supabase';
-import { notifyAllOwners } from './notifications';
+import { notifyAllOwners, notifyOtherOwners } from './notifications';
 
 function formatMoney(amount) {
   const n = Number(amount);
@@ -158,6 +158,7 @@ function Quotes({ buildingId, focusJobId, onJobFocusConsumed }) {
   const [votes, setVotes] = useState([]);
   const [selectedJobId, setSelectedJobId] = useState(null);
   const [showPast, setShowPast] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState(null);
 
   const [showNewJobForm, setShowNewJobForm] = useState(false);
   const [newJobTitle, setNewJobTitle] = useState('');
@@ -197,6 +198,7 @@ function Quotes({ buildingId, focusJobId, onJobFocusConsumed }) {
 
       const user = authData.user;
       const email = user.email;
+      setCurrentUserId(user.id || null);
 
       const [ownerRes, jobsRes, quotesRes, votesRes] = await Promise.all([
         email
@@ -352,20 +354,34 @@ function Quotes({ buildingId, focusJobId, onJobFocusConsumed }) {
     }
 
     setNewJobSubmitting(true);
-    const { error: insErr } = await supabase.from('jobs').insert({
-      building_id: buildingId,
-      title,
-      description: description || null,
-      urgency: newJobUrgency,
-      status: 'open',
-      created_at: new Date().toISOString(),
-    });
+    const { data: newJobRow, error: insErr } = await supabase
+      .from('jobs')
+      .insert({
+        building_id: buildingId,
+        title,
+        description: description || null,
+        urgency: newJobUrgency,
+        status: 'open',
+        created_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single();
     setNewJobSubmitting(false);
 
     if (insErr) {
       setNewJobError(insErr.message);
       return;
     }
+    await notifyOtherOwners({
+      buildingId,
+      senderUserId: currentUserId,
+      title: `New repair job added`,
+      message: title,
+      type: 'job',
+      targetScreen: 'quotes',
+      targetId: newJobRow?.id || null,
+      eventKey: newJobRow?.id ? `job_created:${newJobRow.id}` : null,
+    });
 
     setNewJobTitle('');
     setNewJobDescription('');
@@ -419,10 +435,12 @@ function Quotes({ buildingId, focusJobId, onJobFocusConsumed }) {
       .eq('id', job.id);
 
     if (jobErr) return { ok: false, message: jobErr.message };
-    await notifyAllOwners({
+    await notifyOtherOwners({
       buildingId,
+      senderUserId: currentUserId,
       title: `New vote opened: ${job.title}`,
       message: `Please review and vote on ${chosenQuote.company_name} (${formatMoney(chosenQuote.price)}).`,
+      type: 'vote',
       targetScreen: 'votes',
       targetId: voteRow.id,
       eventKey: `vote_created:${voteRow.id}`,
@@ -484,10 +502,12 @@ function Quotes({ buildingId, focusJobId, onJobFocusConsumed }) {
       setQuoteError(insErr.message);
       return;
     }
-    await notifyAllOwners({
+    await notifyOtherOwners({
       buildingId,
+      senderUserId: currentUserId,
       title: `New quote added for ${selectedJob.title}`,
       message: `${company} submitted a quote for ${formatMoney(price)}.`,
+      type: 'quote',
       targetScreen: 'quotes',
       targetId: selectedJob.id,
       eventKey: quoteRow?.id ? `quote_added:${quoteRow.id}` : null,

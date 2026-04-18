@@ -93,10 +93,10 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
   const [ownerCount, setOwnerCount] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [notifLoading, setNotifLoading] = useState(false);
   const [notifError, setNotifError] = useState(null);
   const buildingLine = topbarBuildingLine(building) || 'Your close';
-  const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   useEffect(() => {
     if (screen !== 'votes') setVoteFocusId(null);
@@ -149,28 +149,48 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
     if (error) {
       if (error.code === '42P01') {
         setNotifications([]);
+        setUnreadCount(0);
         return;
       }
       setNotifError(error.message);
       return;
     }
-    setNotifications(data || []);
+    const rows = data || [];
+    setNotifications(rows);
+    setUnreadCount(rows.filter((n) => !n.is_read).length);
+  }, [session, buildingId]);
+
+  const loadUnreadCount = useCallback(async () => {
+    if (!session?.user?.id) return;
+    const { count, error } = await supabase
+      .from('notifications')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', session.user.id)
+      .eq('building_id', buildingId)
+      .eq('is_read', false);
+    if (error) {
+      if (error.code === '42P01') setUnreadCount(0);
+      return;
+    }
+    setUnreadCount(count ?? 0);
   }, [session, buildingId]);
 
   useEffect(() => {
-    loadNotifications();
-    const t = setInterval(loadNotifications, 30000);
+    loadUnreadCount();
+    const t = setInterval(loadUnreadCount, 30000);
     return () => clearInterval(t);
-  }, [loadNotifications]);
+  }, [loadUnreadCount]);
 
   async function markNotificationRead(id) {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
+    setUnreadCount((c) => Math.max(0, c - 1));
     await supabase.from('notifications').update({ is_read: true }).eq('id', id);
   }
 
   async function markAllNotificationsRead() {
     if (!session?.user?.id) return;
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    setUnreadCount(0);
     await supabase
       .from('notifications')
       .update({ is_read: true })
@@ -497,6 +517,23 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [authMode, setAuthMode] = useState('login');
 
+  const repairOwnerUserLink = useCallback(async (authUser) => {
+    const user = authUser || null;
+    if (!user?.id) return;
+    const buildingId = user.user_metadata?.building_id;
+    if (!buildingId || !user.email) return;
+
+    const { data: ownerRow, error: ownerErr } = await supabase
+      .from('owners')
+      .select('id, user_id')
+      .eq('building_id', buildingId)
+      .eq('email', user.email)
+      .maybeSingle();
+
+    if (ownerErr || !ownerRow || ownerRow.user_id) return;
+    await supabase.from('owners').update({ user_id: user.id }).eq('id', ownerRow.id);
+  }, []);
+
   useEffect(() => {
     let mounted = true;
 
@@ -504,19 +541,21 @@ function App() {
       if (!mounted) return;
       setSession(s);
       setAuthLoading(false);
+      repairOwnerUserLink(s?.user);
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
+      repairOwnerUserLink(s?.user);
     });
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [repairOwnerUserLink]);
 
   async function handleLogout() {
     await supabase.auth.signOut();

@@ -71,23 +71,21 @@ Takes 2 minutes to set up.`
 
     const newId = buildingRow.id;
 
-    const { data: authData, error: authErr } = await supabase.auth.getUser();
-    const authedUser = authData?.user;
-    if (authErr || !authedUser?.id) {
+    const { data: { user }, error: authErr } = await supabase.auth.getUser();
+    if (authErr || !user?.id) {
       setSubmitting(false);
       setError(authErr?.message || 'Could not verify your session. Try refreshing the page.');
       return;
     }
 
-    const metaName = authedUser.user_metadata?.full_name;
-    const displayName =
-      (typeof metaName === 'string' && metaName.trim()) || authedUser.email?.split('@')[0] || 'Owner';
+    const metaName = user.user_metadata?.full_name;
+    const displayName = (typeof metaName === 'string' && metaName.trim()) || user.email?.split('@')[0] || 'Owner';
 
     const { error: oErr } = await supabase.from('owners').insert({
       building_id: newId,
-      user_id: authedUser.id,
+      user_id: user.id,
       name: displayName,
-      email: authedUser.email,
+      email: user.email,
       flat: f,
       role: 'admin',
       status: 'active',

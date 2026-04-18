@@ -62,6 +62,29 @@ export async function notifyAllOwners({
   await createNotificationsForUsers({ userIds, buildingId, title, message, type, targetScreen, targetId, eventKey });
 }
 
+export async function notifyOtherOwners({
+  buildingId,
+  senderUserId,
+  title,
+  message,
+  type = 'general',
+  targetScreen = 'home',
+  targetId = null,
+  eventKey = null,
+}) {
+  let query = supabase
+    .from('owners')
+    .select('user_id, status')
+    .eq('building_id', buildingId)
+    .not('user_id', 'is', null)
+    .or('status.is.null,status.neq.removed');
+  if (senderUserId) query = query.neq('user_id', senderUserId);
+  const { data, error } = await query;
+  if (error) return;
+  const userIds = (data || []).map((r) => r.user_id).filter(Boolean);
+  await createNotificationsForUsers({ userIds, buildingId, title, message, type, targetScreen, targetId, eventKey });
+}
+
 export async function notifyAdmins({
   buildingId,
   title,

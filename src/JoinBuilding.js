@@ -84,19 +84,17 @@ function JoinBuildingForm({ session, buildingId, onSuccess }) {
 
     setSubmitting(true);
 
-    const { data: authData, error: authErr } = await supabase.auth.getUser();
-    const authedUser = authData?.user;
-    if (authErr || !authedUser?.id) {
+    const { data: { user }, error: authErr } = await supabase.auth.getUser();
+    if (authErr || !user?.id) {
       setSubmitting(false);
       setError(authErr?.message || 'Could not verify your session. Try signing in again.');
       return;
     }
 
-    const metaName = authedUser.user_metadata?.full_name;
-    const displayName =
-      (typeof metaName === 'string' && metaName.trim()) || authedUser.email?.split('@')[0] || 'Owner';
-    const userId = authedUser.id;
-    const userEmail = authedUser.email;
+    const metaName = user.user_metadata?.full_name;
+    const displayName = (typeof metaName === 'string' && metaName.trim()) || user.email?.split('@')[0] || 'Owner';
+    const userId = user.id;
+    const userEmail = user.email;
 
     const { data: existing } = await supabase
       .from('owners')
