@@ -134,7 +134,14 @@ function storageKeyForMessages(buildingId, userId) {
   return `ownersMessagesSeen:${buildingId}:${userId || 'anon'}`;
 }
 
-function Owners({ buildingId, focusOwnerId, openMessagesOnFocus, onOwnerFocusConsumed, onMessagesFocusConsumed }) {
+function Owners({
+  buildingId,
+  focusOwnerId,
+  openMessagesOnFocus,
+  onOwnerFocusConsumed,
+  onMessagesFocusConsumed,
+  onMessagesOpened,
+}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [owners, setOwners] = useState([]);
@@ -279,7 +286,8 @@ function Owners({ buildingId, focusOwnerId, openMessagesOnFocus, onOwnerFocusCon
     setLastSeenMessageAt(nowIso);
     if (currentUser?.id) localStorage.setItem(storageKeyForMessages(buildingId, currentUser.id), nowIso);
     if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [showMessages, messages, buildingId, currentUser]);
+    onMessagesOpened?.();
+  }, [showMessages, messages, buildingId, currentUser, onMessagesOpened]);
 
   useEffect(() => {
     if (!openMessagesOnFocus) return;
@@ -432,50 +440,80 @@ We recommend speaking to a solicitor before taking this step.`;
     }
     setMessageDraft('');
     setMessages((prev) => [...prev, row]);
-    const senderUserId = currentUser?.id ?? null;
     const preview = text.slice(0, 60);
-    const ownersQuery = supabase
-      .from('owners')
-      .select('user_id')
-      .eq('building_id', buildingId)
-      .not('user_id', 'is', null);
-    if (senderUserId) ownersQuery.neq('user_id', senderUserId);
-    const { data: recipientRows, error: recErr } = await ownersQuery;
 
-    if (recErr) {
-      console.log('[messages->notifications] recipient fetch failed', recErr);
+    let authedUser = null;
+    try {
+      const { data: { user }, error: authErr } = await supabase.auth.getUser();
+      if (authErr) {
+        console.log('[messages->notifications] step 1 failed: auth.getUser error', authErr);
+        return;
+      }
+      if (!user?.id) {
+        console.log('[messages->notifications] step 1 failed: no authenticated user');
+        return;
+      }
+      authedUser = user;
+      console.log('[messages->notifications] step 1 success', { currentUserId: authedUser.id });
+    } catch (err) {
+      console.log('[messages->notifications] step 1 exception', err);
       return;
     }
 
-    const recipientUserIds = [...new Set((recipientRows || []).map((r) => r.user_id).filter(Boolean))];
-    console.log('[messages->notifications] sender vs recipients', {
-      senderUserId,
-      recipientUserIds,
-      ownerRowsFound: recipientUserIds.length,
-    });
-
-    if (recipientUserIds.length === 0) {
-      console.log('[messages->notifications] no recipients found, skipping insert');
+    let buildingIdFromMeta = null;
+    try {
+      buildingIdFromMeta = authedUser.user_metadata?.building_id || null;
+      if (!buildingIdFromMeta) {
+        console.log('[messages->notifications] step 2 failed: missing building_id in user metadata');
+        return;
+      }
+      console.log('[messages->notifications] step 2 success', { buildingId: buildingIdFromMeta });
+    } catch (err) {
+      console.log('[messages->notifications] step 2 exception', err);
       return;
     }
 
-    const rows = recipientUserIds.map((uid) => ({
-      building_id: buildingId,
-      user_id: uid,
-      title: `New message from ${senderName}`,
-      message: preview,
-      type: 'message',
-      is_read: false,
-      target_screen: 'messages',
-      target_id: null,
-      created_at: new Date().toISOString(),
-    }));
+    let ownerRows = [];
+    try {
+      const { data, error: ownersErr } = await supabase
+        .from('owners')
+        .select('user_id')
+        .eq('building_id', buildingIdFromMeta)
+        .neq('user_id', authedUser.id)
+        .not('user_id', 'is', null);
 
-    const { error: notifErr } = await supabase.from('notifications').insert(rows);
-    if (notifErr) {
-      console.log('[messages->notifications] insert failed', notifErr);
-    } else {
-      console.log('[messages->notifications] insert succeeded', { inserted: rows.length });
+      if (ownersErr) {
+        console.log('[messages->notifications] step 3 failed: owners query error', ownersErr);
+        return;
+      }
+      ownerRows = data || [];
+      console.log('[messages->notifications] step 4 owner query results', ownerRows);
+    } catch (err) {
+      console.log('[messages->notifications] step 3/4 exception', err);
+      return;
+    }
+
+    for (const owner of ownerRows) {
+      try {
+        const payload = {
+          building_id: buildingIdFromMeta,
+          user_id: owner.user_id,
+          title: `New message from ${senderName}`,
+          message: preview,
+          type: 'message',
+          is_read: false,
+          target_id: row.id,
+          target_screen: 'messages',
+        };
+        const { error: notifErr } = await supabase.from('notifications').insert(payload);
+        if (notifErr) {
+          console.log('[messages->notifications] step 6 insert failed', { userId: owner.user_id, error: notifErr });
+        } else {
+          console.log('[messages->notifications] step 6 insert success', { userId: owner.user_id, notification: payload });
+        }
+      } catch (err) {
+        console.log('[messages->notifications] step 6 insert exception', { userId: owner.user_id, error: err });
+      }
     }
   }
 
@@ -620,7 +658,17 @@ We recommend speaking to a solicitor before taking this step.`;
       <section className="home-section">
         <div className="fund-section-head">
           <div className="slabel">Messages</div>
-          <button type="button" className="fund-add-btn owners-messages-btn" onClick={() => setShowMessages((v) => !v)}>
+          <button
+            type="button"
+            className="fund-add-btn owners-messages-btn"
+            onClick={() =>
+              setShowMessages((v) => {
+                const next = !v;
+                if (next) onMessagesOpened?.();
+                return next;
+              })
+            }
+          >
             {showMessages ? 'Hide messages' : 'Open messages'}
             {unreadMessagesCount > 0 && <span className="owners-mini-badge">{unreadMessagesCount}</span>}
           </button>

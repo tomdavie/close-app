@@ -94,9 +94,15 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [markAllFlash, setMarkAllFlash] = useState(false);
+  const [hiddenNotificationIds, setHiddenNotificationIds] = useState([]);
   const [notifLoading, setNotifLoading] = useState(false);
   const [notifError, setNotifError] = useState(null);
   const buildingLine = topbarBuildingLine(building) || 'Your close';
+  const hiddenSet = new Set(hiddenNotificationIds);
+  const unreadNotifications = notifications.filter((n) => !n.is_read && !hiddenSet.has(n.id));
+
+  const hiddenStorageKey = session?.user?.id ? `hiddenNotifications:${session.user.id}:${buildingId}` : null;
 
   useEffect(() => {
     if (screen !== 'votes') setVoteFocusId(null);
@@ -106,6 +112,36 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
     }
     if (screen !== 'quotes') setQuotesFocusJobId(null);
   }, [screen]);
+
+  useEffect(() => {
+    if (!markAllFlash) return;
+    const t = setTimeout(() => setMarkAllFlash(false), 1800);
+    return () => clearTimeout(t);
+  }, [markAllFlash]);
+
+  useEffect(() => {
+    if (!hiddenStorageKey) {
+      setHiddenNotificationIds([]);
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(hiddenStorageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      setHiddenNotificationIds(Array.isArray(parsed) ? parsed : []);
+    } catch (_err) {
+      setHiddenNotificationIds([]);
+    }
+  }, [hiddenStorageKey]);
+
+  function addHiddenNotificationIds(ids) {
+    const clean = (ids || []).filter(Boolean);
+    if (clean.length === 0) return;
+    setHiddenNotificationIds((prev) => {
+      const merged = [...new Set([...prev, ...clean])];
+      if (hiddenStorageKey) localStorage.setItem(hiddenStorageKey, JSON.stringify(merged));
+      return merged;
+    });
+  }
 
   const loadOwnerCount = useCallback(async () => {
     const { count } = await supabase
@@ -138,13 +174,32 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
     if (!session?.user?.id) return;
     setNotifLoading(true);
     setNotifError(null);
-    const { data, error } = await supabase
+    let data = null;
+    let error = null;
+
+    // Prefer loading the optional "type" column, but gracefully fallback
+    // for databases that haven't run the notifications_type migration yet.
+    ({ data, error } = await supabase
       .from('notifications')
-      .select('id, title, message, created_at, is_read, target_screen, target_id')
+      .select('id, title, message, created_at, is_read, type, target_screen, target_id')
       .eq('user_id', session.user.id)
       .eq('building_id', buildingId)
       .order('created_at', { ascending: false })
-      .limit(80);
+      .limit(80));
+
+    if (error && (error.code === '42703' || /column .*type.* does not exist/i.test(error.message || ''))) {
+      ({ data, error } = await supabase
+        .from('notifications')
+        .select('id, title, message, created_at, is_read, target_screen, target_id')
+        .eq('user_id', session.user.id)
+        .eq('building_id', buildingId)
+        .order('created_at', { ascending: false })
+        .limit(80));
+      if (!error) {
+        data = (data || []).map((n) => ({ ...n, type: null }));
+      }
+    }
+
     setNotifLoading(false);
     if (error) {
       if (error.code === '42P01') {
@@ -155,10 +210,10 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
       setNotifError(error.message);
       return;
     }
-    const rows = data || [];
+    const rows = (data || []).filter((n) => !hiddenNotificationIds.includes(n.id));
     setNotifications(rows);
     setUnreadCount(rows.filter((n) => !n.is_read).length);
-  }, [session, buildingId]);
+  }, [session, buildingId, hiddenNotificationIds]);
 
   const loadUnreadCount = useCallback(async () => {
     if (!session?.user?.id) return;
@@ -185,21 +240,83 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
   }, [loadUnreadCount]);
 
   async function markNotificationRead(id) {
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
-    setUnreadCount((c) => Math.max(0, c - 1));
-    await supabase.from('notifications').update({ is_read: true }).eq('id', id);
+    const wasUnread = notifications.some((n) => n.id === id && !n.is_read);
+    addHiddenNotificationIds([id]);
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    if (wasUnread) setUnreadCount((c) => Math.max(0, c - 1));
+    await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('id', id)
+      .eq('user_id', session.user.id)
+      .eq('building_id', buildingId);
+  }
+
+  async function markMessageNotificationsRead() {
+    if (!session?.user?.id) return;
+    // Deterministic: when messages panel opens, clear all unread notifications for this user/building.
+    // This avoids legacy classification mismatches and keeps bell state in sync.
+    const localUnreadIds = notifications.filter((n) => !n.is_read).map((n) => n.id);
+    if (localUnreadIds.length > 0) {
+      addHiddenNotificationIds(localUnreadIds);
+      setNotifications((prev) => prev.map((n) => (localUnreadIds.includes(n.id) ? { ...n, is_read: true } : n)));
+      setUnreadCount(0);
+    }
+
+    const { data: unreadRows, error: fetchErr } = await supabase
+      .from('notifications')
+      .select('id')
+      .eq('user_id', session.user.id)
+      .eq('building_id', buildingId)
+      .or('is_read.eq.false,is_read.is.null')
+      .limit(200);
+
+    if (fetchErr) {
+      console.log('[notifications] mark messages read fetch failed', fetchErr);
+      return;
+    }
+
+    const idsToUpdate = (unreadRows || []).map((n) => n.id);
+    if (idsToUpdate.length === 0) return;
+    addHiddenNotificationIds(idsToUpdate);
+
+    const { error: updErr } = await supabase.from('notifications').update({ is_read: true }).in('id', idsToUpdate);
+    if (updErr) {
+      console.log('[notifications] mark messages read update failed', updErr);
+      return;
+    }
+
+    // Hard refresh state from DB after successful update.
+    loadNotifications();
+    loadUnreadCount();
   }
 
   async function markAllNotificationsRead() {
     if (!session?.user?.id) return;
-    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    const unreadIds = notifications.filter((n) => !n.is_read).map((n) => n.id);
+    addHiddenNotificationIds(unreadIds);
+    // Optimistic UI update: clear current list immediately.
+    setNotifications([]);
     setUnreadCount(0);
-    await supabase
-      .from('notifications')
-      .update({ is_read: true })
-      .eq('user_id', session.user.id)
-      .eq('building_id', buildingId)
-      .eq('is_read', false);
+    setMarkAllFlash(true);
+
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('user_id', session.user.id)
+        .or('is_read.eq.false,is_read.is.null');
+      if (error) {
+        console.log('[notifications] mark all failed', error);
+      } else {
+        console.log('[notifications] mark all success');
+      }
+    } catch (err) {
+      console.log('[notifications] mark all exception', err);
+    } finally {
+      loadNotifications();
+      loadUnreadCount();
+    }
   }
 
   async function openNotification(n) {
@@ -317,18 +434,26 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
             </div>
             {notifLoading ? (
               <div className="topbar-notif-empty">Loading…</div>
-            ) : notifError || notifications.length === 0 ? (
+            ) : markAllFlash ? (
+              <div className="topbar-notif-empty-wrap">
+                <div className="topbar-notif-empty">All caught up!</div>
+              </div>
+            ) : markAllFlash ? (
+              <div className="topbar-notif-empty-wrap">
+                <div className="topbar-notif-empty">All caught up!</div>
+              </div>
+            ) : notifError || unreadNotifications.length === 0 ? (
               <div className="topbar-notif-empty-wrap">
                 <div className="topbar-notif-empty">You&apos;re all caught up</div>
                 <div className="topbar-notif-empty-sub">New activity in your close will appear here</div>
               </div>
             ) : (
               <div className="topbar-notif-list">
-                {notifications.map((n) => (
+                {unreadNotifications.map((n) => (
                   <button
                     key={n.id}
                     type="button"
-                    className={`topbar-notif-item${n.is_read ? '' : ' topbar-notif-item--unread'}`}
+                    className="topbar-notif-item topbar-notif-item--unread"
                     onClick={() => openNotification(n)}
                   >
                     <div className="topbar-notif-title-row">
@@ -387,6 +512,7 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
             openMessagesOnFocus={openOwnersMessages}
             onOwnerFocusConsumed={() => setOwnerFocusId(null)}
             onMessagesFocusConsumed={() => setOpenOwnersMessages(false)}
+            onMessagesOpened={markMessageNotificationsRead}
           />
         )}
         {screen === 'votes' && (
