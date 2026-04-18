@@ -302,7 +302,7 @@ function BuildingSettings({ session, onBuildingUpdated, onLogout }) {
 
     const { data: activeOwners, error: ownerErr } = await supabase
       .from('owners')
-      .select('id')
+      .select('id, user_id')
       .eq('building_id', building.id)
       .or('status.is.null,status.neq.removed');
     if (ownerErr) {
@@ -310,7 +310,10 @@ function BuildingSettings({ session, onBuildingUpdated, onLogout }) {
       setContributionErr(ownerErr.message);
       return;
     }
-    const ownerIds = (activeOwners || []).map((o) => o.id).filter(Boolean);
+    const ownerRows = activeOwners || [];
+    const ownerIds = ownerRows.map((o) => o.id).filter(Boolean);
+    const ownersWithLinkedUser = ownerRows.filter((o) => o.id && o.user_id);
+    const skippedNoUserId = ownerRows.filter((o) => o.id && !o.user_id).length;
 
     let existingOwnerIds = [];
     if (ownerIds.length > 0) {
@@ -328,10 +331,11 @@ function BuildingSettings({ session, onBuildingUpdated, onLogout }) {
       existingOwnerIds = [...new Set((existingRows || []).map((r) => r.owner_id).filter(Boolean))];
     }
 
-    const rowsToCreate = ownerIds
-      .filter((id) => !existingOwnerIds.includes(id))
-      .map((id) => ({
-        owner_id: id,
+    const rowsToCreate = ownersWithLinkedUser
+      .filter((o) => !existingOwnerIds.includes(o.id))
+      .map((o) => ({
+        owner_id: o.id,
+        user_id: o.user_id,
         building_id: building.id,
         amount,
         due_date: dueDate,
@@ -352,11 +356,24 @@ function BuildingSettings({ session, onBuildingUpdated, onLogout }) {
     await sendContributionDueSoonNotifications(building.id);
 
     setContributionSaving(false);
-    setContributionMsg(
-      rowsToCreate.length > 0
-        ? `Saved. Created ${rowsToCreate.length} contribution record${rowsToCreate.length === 1 ? '' : 's'} for ${periodLabel}.`
-        : `Saved. Contribution records for ${periodLabel} already exist.`
-    );
+    const allHaveRecord = ownerIds.length > 0 && ownerIds.every((id) => existingOwnerIds.includes(id));
+    const skippedNote =
+      skippedNoUserId > 0
+        ? ` Skipped ${skippedNoUserId} owner${skippedNoUserId === 1 ? '' : 's'} without a linked user account.`
+        : '';
+    if (rowsToCreate.length > 0) {
+      setContributionMsg(
+        `Saved. Created ${rowsToCreate.length} contribution record${rowsToCreate.length === 1 ? '' : 's'} for ${periodLabel}.${skippedNote}`
+      );
+    } else if (allHaveRecord) {
+      setContributionMsg(`Saved. Contribution records for ${periodLabel} already exist.${skippedNote}`);
+    } else if (skippedNoUserId > 0) {
+      setContributionMsg(
+        `Saved. No contribution records created for ${periodLabel}: ${skippedNoUserId} owner${skippedNoUserId === 1 ? '' : 's'} ${skippedNoUserId === 1 ? 'has' : 'have'} no linked user account. Link them in Owners first.`
+      );
+    } else {
+      setContributionMsg(`Saved.${skippedNote}`.trim());
+    }
     await onBuildingUpdated?.();
   }
 
