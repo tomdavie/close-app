@@ -134,6 +134,142 @@ function storageKeyForMessages(buildingId, userId) {
   return `ownersMessagesSeen:${buildingId}:${userId || 'anon'}`;
 }
 
+function OwnerDetailView({
+  selectedOwner,
+  selectedContribution,
+  isAdmin,
+  ownerContribRows,
+  contribLoading,
+  busy,
+  ownerJoinDate,
+  roleLabel,
+  formatDate,
+  formatMoney,
+  markAsPaid,
+  removeFromBuilding,
+  onBack,
+  onOpenReminderModal,
+  onOpenFormalModal,
+  onOpenNplModal,
+  onCloseModals,
+}) {
+  if (!selectedOwner) return null;
+  const contribution = selectedContribution;
+
+  return (
+    <>
+      <section className="home-section">
+        <button type="button" className="quotes-back-link" onClick={onBack}>
+          ← Back to owners
+        </button>
+        <div className="qcard">
+          <div className="q-company">{selectedOwner.name || 'Unknown owner'}</div>
+          <div className="q-detail">
+            {selectedOwner.flat || '—'} · Joined {formatDate(ownerJoinDate(selectedOwner))}
+          </div>
+          {isAdmin && <div className="q-support">Role: {roleLabel(selectedOwner)}</div>}
+          {contribution?.severe && <span className="owner-badge badge-red">Overdue</span>}
+        </div>
+      </section>
+
+      {isAdmin ? (
+        <>
+          <section className="home-section">
+            <div className="slabel">Payment status</div>
+            <div className="qcard">
+              <div className="q-support">{contribution.label}</div>
+              {Number.isFinite(contribution.overdueWeeks) && contribution.overdueWeeks > 0 && (
+                <div className="q-detail">{contribution.overdueWeeks} week{contribution.overdueWeeks === 1 ? '' : 's'} overdue</div>
+              )}
+              {contribution.severe && <div className="owner-overdue-amount">{formatMoney(contribution.amount)} outstanding</div>}
+            </div>
+          </section>
+
+          <section className="home-section">
+            <div className="slabel">Contribution history</div>
+            <div className="card">
+              {contribLoading ? (
+                <div className="owner-row"><div className="owner-flat">Loading contribution history…</div></div>
+              ) : ownerContribRows.length === 0 ? (
+                <div className="owner-row"><div className="owner-flat">No contribution records yet</div></div>
+              ) : (
+                ownerContribRows.map((row) => (
+                  <div key={row.id} className="owner-row">
+                    <div>
+                      <div className="owner-name">{formatMoney(row.amount)}</div>
+                      <div className="owner-flat">
+                        {row.status || 'recorded'} · {formatDate(row.paid_date || row.created_at)}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="home-section">
+            <div className="slabel">Actions</div>
+            <div className="qcard">
+              <div className="owner-action-row">
+                <button
+                  type="button"
+                  className="owners-action-btn"
+                  onClick={() => {
+                    onCloseModals();
+                    onOpenReminderModal(selectedOwner);
+                  }}
+                  disabled={busy}
+                >
+                  Send reminder
+                </button>
+                <button
+                  type="button"
+                  className="owners-action-btn"
+                  onClick={() => {
+                    onCloseModals();
+                    onOpenFormalModal(selectedOwner);
+                  }}
+                  disabled={busy}
+                >
+                  Formal notice
+                </button>
+                <button
+                  type="button"
+                  className="owners-action-btn"
+                  onClick={() => {
+                    onCloseModals();
+                    onOpenNplModal(selectedOwner);
+                  }}
+                  disabled={busy}
+                >
+                  Notice of Potential Liability
+                </button>
+                <button type="button" className="owners-action-btn" onClick={() => markAsPaid(selectedOwner)} disabled={busy}>
+                  Mark as paid
+                </button>
+                <button
+                  type="button"
+                  className="owners-action-btn owners-action-btn-danger"
+                  onClick={() => removeFromBuilding(selectedOwner)}
+                  disabled={busy}
+                >
+                  Remove from building
+                </button>
+              </div>
+            </div>
+          </section>
+        </>
+      ) : (
+        <section className="home-section">
+          <div className="qcard">
+            <div className="q-support">Private payment details are visible to admins only.</div>
+          </div>
+        </section>
+      )}
+    </>
+  );
+}
+
 function Owners({
   buildingId,
   focusOwnerId,
@@ -164,9 +300,10 @@ function Owners({
   const [lastSeenMessageAt, setLastSeenMessageAt] = useState(null);
 
   const [flash, setFlash] = useState(null);
-  const [reminderModalOwner, setReminderModalOwner] = useState(null);
-  const [formalModalOwner, setFormalModalOwner] = useState(null);
-  const [nplModalOwner, setNplModalOwner] = useState(null);
+  const [modalOwner, setModalOwner] = useState(null);
+  const [showReminderModal, setShowReminderModal] = useState(false);
+  const [showFormalModal, setShowFormalModal] = useState(false);
+  const [showNplModal, setShowNplModal] = useState(false);
   const [ownerBusyId, setOwnerBusyId] = useState(null);
   const [modalCopied, setModalCopied] = useState('');
 
@@ -372,9 +509,35 @@ To file, visit ros.gov.uk - Registers of Scotland.
 We recommend speaking to a solicitor before taking this step.`;
   }
 
-  function sendReminder(owner) {
+  function closeAllModals() {
+    setShowReminderModal(false);
+    setShowFormalModal(false);
+    setShowNplModal(false);
     setModalCopied('');
-    setReminderModalOwner(owner);
+  }
+
+  function openReminderModal(owner) {
+    setModalOwner(owner);
+    setModalCopied('');
+    setShowFormalModal(false);
+    setShowNplModal(false);
+    setShowReminderModal(true);
+  }
+
+  function openFormalModal(owner) {
+    setModalOwner(owner);
+    setModalCopied('');
+    setShowReminderModal(false);
+    setShowNplModal(false);
+    setShowFormalModal(true);
+  }
+
+  function openNplModal(owner) {
+    setModalOwner(owner);
+    setModalCopied('');
+    setShowReminderModal(false);
+    setShowFormalModal(false);
+    setShowNplModal(true);
   }
 
   async function markAsPaid(owner) {
@@ -531,24 +694,25 @@ We recommend speaking to a solicitor before taking this step.`;
   }
 
   function renderOwnerModals() {
+    const activeOwner = modalOwner || selectedOwner;
     return (
       <>
-        {formalModalOwner && (
+        {showFormalModal && activeOwner && (
           <div className="owners-modal-backdrop" role="dialog" aria-modal="true">
             <div className="owners-modal">
               <div className="fund-section-head">
                 <div className="slabel">Formal notice</div>
-                <button type="button" className="fund-form-cancel owners-modal-close-btn" onClick={() => setFormalModalOwner(null)}>
+                <button type="button" className="fund-form-cancel owners-modal-close-btn" onClick={closeAllModals}>
                   Close
                 </button>
               </div>
-              <textarea className="auth-input auth-input-textarea owners-modal-text" readOnly value={formalNoticeText(formalModalOwner)} />
+              <textarea className="auth-input auth-input-textarea owners-modal-text" readOnly value={formalNoticeText(activeOwner)} />
               <div className="fund-form-actions">
                 <button
                   type="button"
                   className="fund-form-submit"
                   onClick={async () => {
-                    await copyToClipboard(formalNoticeText(formalModalOwner), 'Formal notice copied.');
+                    await copyToClipboard(formalNoticeText(activeOwner), 'Formal notice copied.');
                     setModalCopied('Copied!');
                   }}
                 >
@@ -560,22 +724,22 @@ We recommend speaking to a solicitor before taking this step.`;
           </div>
         )}
 
-        {nplModalOwner && (
+        {showNplModal && activeOwner && (
           <div className="owners-modal-backdrop" role="dialog" aria-modal="true">
             <div className="owners-modal">
               <div className="fund-section-head">
                 <div className="slabel">Notice of Potential Liability</div>
-                <button type="button" className="fund-form-cancel owners-modal-close-btn" onClick={() => setNplModalOwner(null)}>
+                <button type="button" className="fund-form-cancel owners-modal-close-btn" onClick={closeAllModals}>
                   Close
                 </button>
               </div>
-              <textarea className="auth-input auth-input-textarea owners-modal-text" readOnly value={nplText(nplModalOwner)} />
+              <textarea className="auth-input auth-input-textarea owners-modal-text" readOnly value={nplText(activeOwner)} />
               <div className="fund-form-actions">
                 <button
                   type="button"
                   className="fund-form-submit"
                   onClick={async () => {
-                    await copyToClipboard(nplText(nplModalOwner), 'NPL guidance copied.');
+                    await copyToClipboard(nplText(activeOwner), 'NPL guidance copied.');
                     setModalCopied('Copied!');
                   }}
                 >
@@ -594,22 +758,22 @@ We recommend speaking to a solicitor before taking this step.`;
           </div>
         )}
 
-        {reminderModalOwner && (
+        {showReminderModal && activeOwner && (
           <div className="owners-modal-backdrop" role="dialog" aria-modal="true">
             <div className="owners-modal">
               <div className="fund-section-head">
                 <div className="slabel">Friendly reminder</div>
-                <button type="button" className="fund-form-cancel owners-modal-close-btn" onClick={() => setReminderModalOwner(null)}>
+                <button type="button" className="fund-form-cancel owners-modal-close-btn" onClick={closeAllModals}>
                   Close
                 </button>
               </div>
-              <textarea className="auth-input auth-input-textarea owners-modal-text" readOnly value={reminderTemplate(reminderModalOwner)} />
+              <textarea className="auth-input auth-input-textarea owners-modal-text" readOnly value={reminderTemplate(activeOwner)} />
               <div className="fund-form-actions">
                 <button
                   type="button"
                   className="fund-form-submit"
                   onClick={async () => {
-                    await copyToClipboard(reminderTemplate(reminderModalOwner), 'Reminder copied.');
+                    await copyToClipboard(reminderTemplate(activeOwner), 'Reminder copied.');
                     setModalCopied('Copied!');
                   }}
                 >
@@ -624,132 +788,41 @@ We recommend speaking to a solicitor before taking this step.`;
     );
   }
 
-  if (loading) {
-    return (
-      <main className="home">
-        <section className="home-section">
-          <div className="slabel">Owners</div>
-          <div className="qcard">
-            <div className="q-company">Loading owners…</div>
-          </div>
-        </section>
-        {renderOwnerModals()}
-      </main>
-    );
-  }
-
-  if (selectedOwner) {
-    const contribution = selectedContribution;
-    const ownerContribRows = contribByOwnerId[selectedOwner.id] || [];
-    const busy = ownerBusyId === selectedOwner.id;
-    return (
-      <main className="home">
-        <section className="home-section">
-          <button type="button" className="quotes-back-link" onClick={() => setSelectedOwnerId(null)}>
-            ← Back to owners
-          </button>
-          <div className="qcard">
-            <div className="q-company">{selectedOwner.name || 'Unknown owner'}</div>
-            <div className="q-detail">
-              {selectedOwner.flat || '—'} · Joined {formatDate(ownerJoinDate(selectedOwner))}
-            </div>
-            {isAdmin && <div className="q-support">Role: {roleLabel(selectedOwner)}</div>}
-            {contribution?.severe && <span className="owner-badge badge-red">Overdue</span>}
-          </div>
-        </section>
-
-        {isAdmin ? (
-          <>
-            <section className="home-section">
-              <div className="slabel">Payment status</div>
-              <div className="qcard">
-                <div className="q-support">{contribution.label}</div>
-                {Number.isFinite(contribution.overdueWeeks) && contribution.overdueWeeks > 0 && (
-                  <div className="q-detail">{contribution.overdueWeeks} week{contribution.overdueWeeks === 1 ? '' : 's'} overdue</div>
-                )}
-                {contribution.severe && <div className="owner-overdue-amount">{formatMoney(contribution.amount)} outstanding</div>}
-              </div>
-            </section>
-
-            <section className="home-section">
-              <div className="slabel">Contribution history</div>
-              <div className="card">
-                {contribLoading ? (
-                  <div className="owner-row"><div className="owner-flat">Loading contribution history…</div></div>
-                ) : ownerContribRows.length === 0 ? (
-                  <div className="owner-row"><div className="owner-flat">No contribution records yet</div></div>
-                ) : (
-                  ownerContribRows.map((row) => (
-                    <div key={row.id} className="owner-row">
-                      <div>
-                        <div className="owner-name">{formatMoney(row.amount)}</div>
-                        <div className="owner-flat">
-                          {row.status || 'recorded'} · {formatDate(row.paid_date || row.created_at)}
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-
-            <section className="home-section">
-              <div className="slabel">Actions</div>
-              <div className="qcard">
-                <div className="owner-action-row">
-                  <button type="button" className="owners-action-btn" onClick={() => sendReminder(selectedOwner)} disabled={busy}>
-                    Send reminder
-                  </button>
-                  <button
-                    type="button"
-                    className="owners-action-btn"
-                    onClick={() => {
-                      setModalCopied('');
-                      setFormalModalOwner(selectedOwner);
-                    }}
-                    disabled={busy}
-                  >
-                    Formal notice
-                  </button>
-                  <button
-                    type="button"
-                    className="owners-action-btn"
-                    onClick={() => {
-                      setModalCopied('');
-                      setNplModalOwner(selectedOwner);
-                    }}
-                    disabled={busy}
-                  >
-                    Notice of Potential Liability
-                  </button>
-                  <button type="button" className="owners-action-btn" onClick={() => markAsPaid(selectedOwner)} disabled={busy}>
-                    Mark as paid
-                  </button>
-                  <button
-                    type="button"
-                    className="owners-action-btn owners-action-btn-danger"
-                    onClick={() => removeFromBuilding(selectedOwner)}
-                    disabled={busy}
-                  >
-                    Remove from building
-                  </button>
-                </div>
-              </div>
-            </section>
-          </>
-        ) : (
-          <section className="home-section">
-            <div className="qcard">
-              <div className="q-support">Private payment details are visible to admins only.</div>
-            </div>
-          </section>
-        )}
-      </main>
-    );
-  }
+  const ownerContribRows = selectedOwner ? contribByOwnerId[selectedOwner.id] || [] : [];
+  const busy = selectedOwner ? ownerBusyId === selectedOwner.id : false;
 
   return (
-    <main className="home">
+    <>
+      <main className="home">
+        {loading ? (
+          <section className="home-section">
+            <div className="slabel">Owners</div>
+            <div className="qcard">
+              <div className="q-company">Loading owners…</div>
+            </div>
+          </section>
+        ) : selectedOwner ? (
+          <OwnerDetailView
+            selectedOwner={selectedOwner}
+            selectedContribution={selectedContribution}
+            isAdmin={isAdmin}
+            ownerContribRows={ownerContribRows}
+            contribLoading={contribLoading}
+            busy={busy}
+            ownerJoinDate={ownerJoinDate}
+            roleLabel={roleLabel}
+            formatDate={formatDate}
+            formatMoney={formatMoney}
+            markAsPaid={markAsPaid}
+            removeFromBuilding={removeFromBuilding}
+            onBack={() => setSelectedOwnerId(null)}
+            onOpenReminderModal={openReminderModal}
+            onOpenFormalModal={openFormalModal}
+            onOpenNplModal={openNplModal}
+            onCloseModals={closeAllModals}
+          />
+        ) : (
+          <>
       <section className="home-section">
         <div className="fund-section-head">
           <div className="slabel">Messages</div>
@@ -866,9 +939,11 @@ We recommend speaking to a solicitor before taking this step.`;
           </div>
         </section>
       )}
-
+          </>
+        )}
+      </main>
       {renderOwnerModals()}
-    </main>
+    </>
   );
 }
 

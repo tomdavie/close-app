@@ -433,7 +433,7 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
         <div className="topbar-user">{displayNameFromSession(session)}</div>
         <div className="topbar-building">{buildingLine}</div>
         <span className="topbar-tag">
-          Running your building together · {ownerCount == null ? '…' : ownerCount} owner{ownerCount === 1 ? '' : 's'}
+          {ownerCount == null ? '… owners' : `${ownerCount} owner${ownerCount === 1 ? '' : 's'}`}
         </span>
         {showNotifications && (
           <div className="topbar-notif-panel">
