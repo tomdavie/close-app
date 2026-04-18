@@ -1,9 +1,23 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from './supabase';
 
 const NOTICE_PERIOD_DAYS_DEFAULT = 90;
 const NOTICE_KEY = (buildingId) => `organisingNotice:v1:${buildingId}`;
 const EARLY_LIVE_KEY = (buildingId) => `organisingEarlyLive:v1:${buildingId}`;
+const CHAT_LAST_SEEN_KEY = (buildingId, userId) => `organisingChatLastSeen:${buildingId}:${userId}`;
+
+function formatChatTime(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(d);
+}
 
 const FLAT_STATUSES = [
   { id: 'not_yet', label: 'Not yet' },
@@ -42,7 +56,7 @@ function saveNotice(buildingId, notice) {
   localStorage.setItem(NOTICE_KEY(buildingId), JSON.stringify(notice));
 }
 
-function Organising({ buildingId, building, onLogout, onEnteredLive }) {
+function Organising({ session, buildingId, building, onEnteredLive }) {
   const [canvas, setCanvas] = useState([]);
   const [ownerRows, setOwnerRows] = useState([]);
   const [canvasLoading, setCanvasLoading] = useState(true);
@@ -54,7 +68,47 @@ function Organising({ buildingId, building, onLogout, onEnteredLive }) {
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState(null);
 
+  const [messages, setMessages] = useState([]);
+  const [messagesError, setMessagesError] = useState(null);
+  const [messagesTableMissing, setMessagesTableMissing] = useState(false);
+  const [chatDraft, setChatDraft] = useState('');
+  const [chatSending, setChatSending] = useState(false);
+  const [chatLastSeenAt, setChatLastSeenAt] = useState(null);
+
+  const chatSectionRef = useRef(null);
+  const chatEndRef = useRef(null);
+
   const approxFlats = Math.max(1, Number(building?.approx_flat_count) || canvas.length || 6);
+
+  const loadMessages = useCallback(async () => {
+    if (!session?.user?.id) {
+      setMessages([]);
+      setMessagesError(null);
+      setMessagesTableMissing(false);
+      return;
+    }
+    const { data, error } = await supabase
+      .from('messages')
+      .select('id, building_id, user_id, sender_name, message_text, created_at')
+      .eq('building_id', buildingId)
+      .order('created_at', { ascending: true })
+      .limit(200);
+    if (error) {
+      if (error.code === '42P01') {
+        setMessagesTableMissing(true);
+        setMessages([]);
+        setMessagesError(null);
+      } else {
+        setMessagesError(error.message);
+        setMessages([]);
+        setMessagesTableMissing(false);
+      }
+      return;
+    }
+    setMessagesTableMissing(false);
+    setMessagesError(null);
+    setMessages(data || []);
+  }, [buildingId, session?.user?.id]);
 
   const refreshData = useCallback(async () => {
     setCanvasLoading(true);
@@ -72,9 +126,20 @@ function Organising({ buildingId, building, onLogout, onEnteredLive }) {
     }
 
     const { data: owners } = await supabase.from('owners').select('id, name, flat, user_id, status').eq('building_id', buildingId);
-    setOwnerRows((owners || []).filter((o) => (o.status || '').toLowerCase() !== 'removed'));
+    const filtered = (owners || []).filter((o) => (o.status || '').toLowerCase() !== 'removed');
+    setOwnerRows(filtered);
+
+    const uid = session?.user?.id;
+    const joined =
+      Boolean(uid) && filtered.some((o) => o.user_id === uid && (o.status || '').toLowerCase() !== 'removed');
+    if (joined) {
+      await loadMessages();
+    } else {
+      setMessages([]);
+    }
+
     setCanvasLoading(false);
-  }, [buildingId]);
+  }, [buildingId, loadMessages, session?.user?.id]);
 
   useEffect(() => {
     refreshData();
@@ -87,6 +152,83 @@ function Organising({ buildingId, building, onLogout, onEnteredLive }) {
   }, [flash]);
 
   const joinedCount = useMemo(() => ownerRows.filter((o) => o.user_id).length, [ownerRows]);
+
+  const isJoinedOwner = useMemo(() => {
+    const uid = session?.user?.id;
+    if (!uid) return false;
+    return ownerRows.some((o) => o.user_id === uid && (o.status || '').toLowerCase() !== 'removed');
+  }, [ownerRows, session?.user?.id]);
+
+  const myOwnerRow = useMemo(
+    () => ownerRows.find((o) => o.user_id === session?.user?.id) || null,
+    [ownerRows, session?.user?.id]
+  );
+
+  const chatSenderName = useMemo(() => {
+    const meta = session?.user?.user_metadata?.full_name;
+    const fromOwner = myOwnerRow?.name && String(myOwnerRow.name).trim();
+    const fromMeta = typeof meta === 'string' && meta.trim();
+    const fromEmail = session?.user?.email?.split('@')[0];
+    return fromOwner || fromMeta || fromEmail || 'Neighbour';
+  }, [myOwnerRow, session?.user]);
+
+  const markChatRead = useCallback(() => {
+    const uid = session?.user?.id;
+    if (!uid) return;
+    const iso = new Date().toISOString();
+    localStorage.setItem(CHAT_LAST_SEEN_KEY(buildingId, uid), iso);
+    setChatLastSeenAt(iso);
+  }, [buildingId, session?.user?.id]);
+
+  const unreadChatCount = useMemo(() => {
+    const uid = session?.user?.id;
+    if (!uid || !messages.length) return 0;
+    const last = chatLastSeenAt ? new Date(chatLastSeenAt).getTime() : 0;
+    return messages.filter((m) => m.user_id !== uid && new Date(m.created_at).getTime() > last).length;
+  }, [messages, session?.user?.id, chatLastSeenAt]);
+
+  useEffect(() => {
+    const uid = session?.user?.id;
+    if (!uid) {
+      setChatLastSeenAt(null);
+      return;
+    }
+    setChatLastSeenAt(localStorage.getItem(CHAT_LAST_SEEN_KEY(buildingId, uid)));
+  }, [buildingId, session?.user?.id]);
+
+  useEffect(() => {
+    if (!isJoinedOwner || !buildingId) return undefined;
+    const channel = supabase
+      .channel(`organising-messages-${buildingId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `building_id=eq.${buildingId}` },
+        () => {
+          loadMessages();
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isJoinedOwner, buildingId, loadMessages]);
+
+  useEffect(() => {
+    const el = chatSectionRef.current;
+    if (!el || !isJoinedOwner) return undefined;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.2) {
+            markChatRead();
+          }
+        }
+      },
+      { threshold: [0, 0.2, 0.4] }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [isJoinedOwner, markChatRead]);
 
   const signedUpCount = useMemo(() => canvas.filter((r) => r.status === 'signed_up').length, [canvas]);
   const totalFlats = canvas.length;
@@ -170,6 +312,35 @@ function Organising({ buildingId, building, onLogout, onEnteredLive }) {
     } catch (_e) {
       setFlash('Could not copy automatically.');
     }
+  }
+
+  async function sendOrganisingChat(e) {
+    e.preventDefault();
+    if (!isJoinedOwner || messagesTableMissing) return;
+    const text = chatDraft.trim();
+    if (!text) return;
+    setChatSending(true);
+    setMessagesError(null);
+    const { data: row, error: insErr } = await supabase
+      .from('messages')
+      .insert({
+        building_id: buildingId,
+        user_id: session?.user?.id ?? null,
+        sender_name: chatSenderName,
+        message_text: text,
+        created_at: new Date().toISOString(),
+      })
+      .select('id, building_id, user_id, sender_name, message_text, created_at')
+      .single();
+    setChatSending(false);
+    if (insErr) {
+      setMessagesError(insErr.message);
+      return;
+    }
+    setChatDraft('');
+    setMessages((prev) => [...prev, row]);
+    markChatRead();
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }), 100);
   }
 
   async function copyInvites() {
@@ -258,13 +429,53 @@ The owners (via Clōse organising workspace)`;
   return (
     <div className="app organising-app">
       <header className="organising-topbar">
-        <div className="organising-wordmark">
-          Cl<em>ō</em>se
+        <div className="organising-topbar-row">
+          <div className="organising-wordmark">
+            Cl<em>ō</em>se
+          </div>
+          <div className="organising-topbar-actions">
+            {isJoinedOwner && (
+              <button
+                type="button"
+                className="organising-chat-top-btn"
+                onClick={() =>
+                  document.getElementById('organising-chat')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+                aria-label="Jump to chat with neighbours"
+              >
+                <span className="organising-chat-top-label">Chat</span>
+                {unreadChatCount > 0 && (
+                  <span className="organising-chat-badge" aria-label={`${unreadChatCount} unread`}>
+                    {unreadChatCount > 99 ? '99+' : unreadChatCount}
+                  </span>
+                )}
+              </button>
+            )}
+            <Link
+              to="/settings"
+              className="topbar-icon-btn topbar-settings-link organising-settings-cog"
+              aria-label="Settings"
+            >
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden focusable="false">
+                <path
+                  d="M12 8.4a3.6 3.6 0 1 1 0 7.2 3.6 3.6 0 0 1 0-7.2Z"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                />
+                <path
+                  d="M19.2 13.2v-2.4l-2-.5a5.9 5.9 0 0 0-.5-1.2l1.2-1.7-1.7-1.7-1.7 1.2a5.9 5.9 0 0 0-1.2-.5l-.5-2h-2.4l-.5 2a5.9 5.9 0 0 0-1.2.5L7.9 5.7 6.2 7.4l1.2 1.7a5.9 5.9 0 0 0-.5 1.2l-2 .5v2.4l2 .5c.1.4.3.8.5 1.2l-1.2 1.7 1.7 1.7 1.7-1.2c.4.2.8.4 1.2.5l.5 2h2.4l.5-2c.4-.1.8-.3 1.2-.5l1.7 1.2 1.7-1.7-1.2-1.7c.2-.4.4-.8.5-1.2l2-.5Z"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </Link>
+          </div>
         </div>
-        <button type="button" className="topbar-logout organising-logout" onClick={onLogout}>
-          Log out
-        </button>
-        <p className="organising-sub">Organising your close — take it one step at a time.</p>
+        <p className="organising-sub">Organising your close, one step at a time.</p>
       </header>
 
       <main className="organising-main">
@@ -483,6 +694,61 @@ The owners (via Clōse organising workspace)`;
             </p>
           )}
         </section>
+
+        {isJoinedOwner && (
+          <section id="organising-chat" ref={chatSectionRef} className="organising-section organising-chat-section">
+            <div className="organising-chat-head">
+              <h2 className="organising-h organising-chat-title">Chat with your neighbours</h2>
+              {unreadChatCount > 0 && (
+                <span className="organising-chat-badge organising-chat-badge-inline" aria-hidden>
+                  {unreadChatCount > 99 ? '99+' : unreadChatCount} new
+                </span>
+              )}
+            </div>
+            <p className="organising-p organising-chat-lede">
+              Same building-wide chat as after you go live — only people who&apos;ve joined your building on Clōse can see this.
+            </p>
+
+            {messagesTableMissing ? (
+              <p className="organising-p">Messages aren&apos;t set up on the server yet. Run the messages migration.</p>
+            ) : (
+              <>
+                <div className="organising-chat-list card">
+                  {messages.length === 0 ? (
+                    <p className="organising-p organising-chat-empty">No messages yet — say hello and nudge things along.</p>
+                  ) : (
+                    messages.map((msg) => (
+                      <div key={msg.id} className="organising-chat-item">
+                        <div className="organising-chat-meta">
+                          <span className="organising-chat-sender">{msg.sender_name || 'Neighbour'}</span>
+                          <span className="organising-chat-time">{formatChatTime(msg.created_at)}</span>
+                        </div>
+                        <div className="organising-chat-text">{msg.message_text}</div>
+                      </div>
+                    ))
+                  )}
+                  <div ref={chatEndRef} />
+                </div>
+
+                <form className="organising-chat-form" onSubmit={sendOrganisingChat}>
+                  <input
+                    className="auth-input organising-chat-input"
+                    type="text"
+                    value={chatDraft}
+                    onChange={(e) => setChatDraft(e.target.value)}
+                    placeholder="Write something to everyone in the building…"
+                    disabled={chatSending}
+                    maxLength={2000}
+                  />
+                  <button type="submit" className="landing-btn landing-btn-primary organising-chat-send" disabled={chatSending}>
+                    {chatSending ? 'Sending…' : 'Send'}
+                  </button>
+                </form>
+                {messagesError && <p className="auth-error organising-chat-form-error">{messagesError}</p>}
+              </>
+            )}
+          </section>
+        )}
       </main>
     </div>
   );

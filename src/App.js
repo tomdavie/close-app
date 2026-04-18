@@ -598,6 +598,108 @@ function JoinRoute({ session, authLoading }) {
   return <JoinBuilding session={session} />;
 }
 
+/** Full-page settings for buildings in organising mode (logout lives here). Live buildings use the in-app settings tab. */
+function OrganisingSettingsPage({ session, authLoading, onLogout }) {
+  const navigate = useNavigate();
+  const [gateLoading, setGateLoading] = useState(true);
+  const [buildingId, setBuildingId] = useState(null);
+  const [building, setBuilding] = useState(null);
+
+  const loadBuildingForUser = useCallback(async (user) => {
+    const bid = user?.user_metadata?.building_id;
+    if (!bid) {
+      setBuildingId(null);
+      setBuilding(null);
+      return;
+    }
+    setBuildingId(bid);
+    const { data: bRow } = await supabase
+      .from('buildings')
+      .select('id, address, postcode, target_fund, name, floor_count, approx_flat_count, status')
+      .eq('id', bid)
+      .maybeSingle();
+    setBuilding(bRow);
+  }, []);
+
+  const refreshBuilding = useCallback(async () => {
+    const { data: authData } = await supabase.auth.getUser();
+    const user = authData?.user;
+    if (!user) return;
+    await loadBuildingForUser(user);
+  }, [loadBuildingForUser]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!session) {
+      setGateLoading(false);
+      setBuildingId(null);
+      setBuilding(null);
+      return undefined;
+    }
+
+    setGateLoading(true);
+    (async () => {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (cancelled) return;
+      if (authError || !authData?.user) {
+        setBuildingId(null);
+        setBuilding(null);
+        setGateLoading(false);
+        return;
+      }
+      await loadBuildingForUser(authData.user);
+      if (!cancelled) setGateLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session, loadBuildingForUser]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!session) {
+      navigate('/login', { replace: true });
+    }
+  }, [authLoading, session, navigate]);
+
+  useEffect(() => {
+    if (gateLoading || !session) return;
+    if (!buildingId || !building) {
+      navigate('/', { replace: true });
+      return;
+    }
+    const status = (building.status || 'live').toLowerCase();
+    if (status !== 'organising') {
+      navigate('/', { replace: true });
+    }
+  }, [gateLoading, session, buildingId, building, navigate]);
+
+  if (authLoading) return <LoadingShell />;
+  if (!session) return null;
+  if (gateLoading) return <LoadingShell />;
+  if (!buildingId || !building || (building.status || 'live').toLowerCase() !== 'organising') {
+    return <LoadingShell />;
+  }
+
+  return (
+    <div className="app organising-app">
+      <header className="organising-topbar">
+        <div className="organising-topbar-row">
+          <Link to="/" className="organising-settings-back-link">
+            ← Organising
+          </Link>
+        </div>
+        <p className="organising-sub">Account and building settings</p>
+      </header>
+      <div className="organising-main organising-settings-embed">
+        <BuildingSettings session={session} onBuildingUpdated={refreshBuilding} onLogout={onLogout} />
+      </div>
+    </div>
+  );
+}
+
 function MainAppRoute({ session, authLoading, onLogout }) {
   const navigate = useNavigate();
   const [gateLoading, setGateLoading] = useState(true);
@@ -684,9 +786,9 @@ function MainAppRoute({ session, authLoading, onLogout }) {
   if (buildingStatus === 'organising') {
     return (
       <Organising
+        session={session}
         buildingId={buildingId}
         building={building}
-        onLogout={onLogout}
         onEnteredLive={refreshBuilding}
       />
     );
@@ -758,6 +860,12 @@ function App() {
       <Route path="/login" element={<AuthScreenPage session={session} mode="login" />} />
       <Route path="/signup" element={<AuthScreenPage session={session} mode="signup" />} />
       <Route path="/join/:buildingId" element={<JoinRoute session={session} authLoading={authLoading} />} />
+      <Route
+        path="/settings"
+        element={
+          <OrganisingSettingsPage session={session} authLoading={authLoading} onLogout={handleLogout} />
+        }
+      />
       <Route
         path="*"
         element={
