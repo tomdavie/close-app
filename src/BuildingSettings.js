@@ -1,7 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { supabase } from './supabase';
+import { periodLabelForDate, sendContributionDueSoonNotifications, toDateOnly } from './contributions';
 
-const BUILDING_SELECT = 'id, address, postcode, target_fund, name, floor_count, approx_flat_count';
+const BUILDING_SELECT =
+  'id, address, postcode, target_fund, name, floor_count, approx_flat_count, contribution_amount, contribution_frequency, contribution_next_due_date';
 
 function numOrEmpty(v) {
   if (v === null || v === undefined) return '';
@@ -10,12 +12,24 @@ function numOrEmpty(v) {
 }
 
 function applyBuildingToForm(b, setters) {
-  const { setBName, setBAddress, setBPostcode, setBFloors, setBFlats } = setters;
+  const {
+    setBName,
+    setBAddress,
+    setBPostcode,
+    setBFloors,
+    setBFlats,
+    setContributionAmount,
+    setContributionFrequency,
+    setContributionNextDueDate,
+  } = setters;
   setBName(b?.name && String(b.name).trim() ? b.name : '');
   setBAddress(b?.address || '');
   setBPostcode(b?.postcode || '');
   setBFloors(numOrEmpty(b?.floor_count));
   setBFlats(numOrEmpty(b?.approx_flat_count));
+  setContributionAmount(numOrEmpty(b?.contribution_amount));
+  setContributionFrequency((b?.contribution_frequency || 'quarterly').toLowerCase());
+  setContributionNextDueDate(toDateOnly(b?.contribution_next_due_date) || '');
 }
 
 /** Prefer user_id = auth user; fall back to email if column missing or no row. */
@@ -64,6 +78,9 @@ function BuildingSettings({ session, onBuildingUpdated, onLogout }) {
   const [bPostcode, setBPostcode] = useState('');
   const [bFloors, setBFloors] = useState('');
   const [bFlats, setBFlats] = useState('');
+  const [contributionAmount, setContributionAmount] = useState('');
+  const [contributionFrequency, setContributionFrequency] = useState('quarterly');
+  const [contributionNextDueDate, setContributionNextDueDate] = useState('');
 
   const [displayName, setDisplayName] = useState('');
   const [flat, setFlat] = useState('');
@@ -74,6 +91,9 @@ function BuildingSettings({ session, onBuildingUpdated, onLogout }) {
   const [buildingSaving, setBuildingSaving] = useState(false);
   const [buildingMsg, setBuildingMsg] = useState(null);
   const [buildingErr, setBuildingErr] = useState(null);
+  const [contributionSaving, setContributionSaving] = useState(false);
+  const [contributionMsg, setContributionMsg] = useState(null);
+  const [contributionErr, setContributionErr] = useState(null);
 
   const [youSaving, setYouSaving] = useState(false);
   const [youMsg, setYouMsg] = useState(null);
@@ -130,7 +150,16 @@ function BuildingSettings({ session, onBuildingUpdated, onLogout }) {
     }
 
     setBuilding(bRow);
-    applyBuildingToForm(bRow, { setBName, setBAddress, setBPostcode, setBFloors, setBFlats });
+    applyBuildingToForm(bRow, {
+      setBName,
+      setBAddress,
+      setBPostcode,
+      setBFloors,
+      setBFlats,
+      setContributionAmount,
+      setContributionFrequency,
+      setContributionNextDueDate,
+    });
 
     const { data: ownerRow, error: ownerErr } = await fetchOwnerForUser(bid, user);
 
@@ -216,8 +245,119 @@ function BuildingSettings({ session, onBuildingUpdated, onLogout }) {
     const { data: fresh } = await supabase.from('buildings').select(BUILDING_SELECT).eq('id', building.id).maybeSingle();
     if (fresh) {
       setBuilding(fresh);
-      applyBuildingToForm(fresh, { setBName, setBAddress, setBPostcode, setBFloors, setBFlats });
+      applyBuildingToForm(fresh, {
+        setBName,
+        setBAddress,
+        setBPostcode,
+        setBFloors,
+        setBFlats,
+        setContributionAmount,
+        setContributionFrequency,
+        setContributionNextDueDate,
+      });
     }
+  }
+
+  async function handleSaveContributionSettings(e) {
+    e.preventDefault();
+    if (!building?.id) return;
+    setContributionErr(null);
+    setContributionMsg(null);
+
+    const amount = Number(contributionAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setContributionErr('Contribution amount must be greater than £0.');
+      return;
+    }
+    if (!['monthly', 'quarterly', 'annually'].includes(contributionFrequency)) {
+      setContributionErr('Choose a valid contribution frequency.');
+      return;
+    }
+    if (!contributionNextDueDate) {
+      setContributionErr('Please choose the next due date.');
+      return;
+    }
+
+    const dueDate = toDateOnly(contributionNextDueDate);
+    const periodLabel = periodLabelForDate(dueDate, contributionFrequency);
+    if (!dueDate || !periodLabel) {
+      setContributionErr('Could not calculate the contribution period.');
+      return;
+    }
+
+    setContributionSaving(true);
+    const { error: updErr } = await supabase
+      .from('buildings')
+      .update({
+        contribution_amount: amount,
+        contribution_frequency: contributionFrequency,
+        contribution_next_due_date: dueDate,
+      })
+      .eq('id', building.id);
+    if (updErr) {
+      setContributionSaving(false);
+      setContributionErr(updErr.message);
+      return;
+    }
+
+    const { data: activeOwners, error: ownerErr } = await supabase
+      .from('owners')
+      .select('id')
+      .eq('building_id', building.id)
+      .or('status.is.null,status.neq.removed');
+    if (ownerErr) {
+      setContributionSaving(false);
+      setContributionErr(ownerErr.message);
+      return;
+    }
+    const ownerIds = (activeOwners || []).map((o) => o.id).filter(Boolean);
+
+    let existingOwnerIds = [];
+    if (ownerIds.length > 0) {
+      const { data: existingRows, error: existingErr } = await supabase
+        .from('contributions')
+        .select('owner_id')
+        .eq('building_id', building.id)
+        .eq('period_label', periodLabel)
+        .in('owner_id', ownerIds);
+      if (existingErr) {
+        setContributionSaving(false);
+        setContributionErr(existingErr.message);
+        return;
+      }
+      existingOwnerIds = [...new Set((existingRows || []).map((r) => r.owner_id).filter(Boolean))];
+    }
+
+    const rowsToCreate = ownerIds
+      .filter((id) => !existingOwnerIds.includes(id))
+      .map((id) => ({
+        owner_id: id,
+        building_id: building.id,
+        amount,
+        due_date: dueDate,
+        status: 'pending',
+        period_label: periodLabel,
+        created_at: new Date().toISOString(),
+      }));
+
+    if (rowsToCreate.length > 0) {
+      const { error: insErr } = await supabase.from('contributions').insert(rowsToCreate);
+      if (insErr) {
+        setContributionSaving(false);
+        setContributionErr(insErr.message);
+        return;
+      }
+    }
+
+    await sendContributionDueSoonNotifications(building.id);
+
+    setContributionSaving(false);
+    setContributionMsg(
+      rowsToCreate.length > 0
+        ? `Saved. Created ${rowsToCreate.length} contribution record${rowsToCreate.length === 1 ? '' : 's'} for ${periodLabel}.`
+        : `Saved. Contribution records for ${periodLabel} already exist.`
+    );
+    await onBuildingUpdated?.();
   }
 
   async function handleSaveYou(e) {
@@ -374,6 +514,61 @@ function BuildingSettings({ session, onBuildingUpdated, onLogout }) {
             <div className="fund-form-actions">
               <button type="submit" className="fund-form-submit" disabled={buildingSaving}>
                 {buildingSaving ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section className="home-section">
+        <div className="slabel">Contribution settings</div>
+        <div className="card fund-add-card">
+          <form className="fund-add-form" onSubmit={handleSaveContributionSettings}>
+            <label className="auth-label" htmlFor="set-contrib-amount">
+              Contribution amount per owner (£)
+            </label>
+            <input
+              id="set-contrib-amount"
+              className="auth-input"
+              type="number"
+              min={1}
+              step={1}
+              value={contributionAmount}
+              onChange={(e) => setContributionAmount(e.target.value)}
+              placeholder="e.g. 120"
+            />
+
+            <label className="auth-label" htmlFor="set-contrib-frequency">
+              Frequency
+            </label>
+            <select
+              id="set-contrib-frequency"
+              className="auth-input"
+              value={contributionFrequency}
+              onChange={(e) => setContributionFrequency(e.target.value)}
+            >
+              <option value="monthly">Monthly</option>
+              <option value="quarterly">Quarterly</option>
+              <option value="annually">Annually</option>
+            </select>
+
+            <label className="auth-label" htmlFor="set-contrib-due">
+              Next due date
+            </label>
+            <input
+              id="set-contrib-due"
+              className="auth-input"
+              type="date"
+              value={contributionNextDueDate}
+              onChange={(e) => setContributionNextDueDate(e.target.value)}
+            />
+
+            {contributionErr && <div className="fund-form-error">{contributionErr}</div>}
+            {contributionMsg && !contributionErr && <p className="settings-form-note">{contributionMsg}</p>}
+
+            <div className="fund-form-actions">
+              <button type="submit" className="fund-form-submit" disabled={contributionSaving}>
+                {contributionSaving ? 'Saving…' : 'Save settings'}
               </button>
             </div>
           </form>

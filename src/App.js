@@ -13,6 +13,7 @@ import Login from './Login';
 import SignUp from './SignUp';
 import CreateBuilding from './CreateBuilding';
 import JoinBuilding, { JoinAuthScreen } from './JoinBuilding';
+import { sendContributionDueSoonNotifications } from './contributions';
 
 function LoadingShell() {
   return (
@@ -239,6 +240,15 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
     const t = setInterval(loadUnreadCount, 30000);
     return () => clearInterval(t);
   }, [loadUnreadCount]);
+
+  useEffect(() => {
+    if (!buildingId) return undefined;
+    sendContributionDueSoonNotifications(buildingId);
+    const t = setInterval(() => {
+      sendContributionDueSoonNotifications(buildingId);
+    }, 12 * 60 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [buildingId]);
 
   async function markNotificationRead(id) {
     const wasUnread = notifications.some((n) => n.id === id && !n.is_read);

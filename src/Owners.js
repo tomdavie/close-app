@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabase';
-import { notifyAdmins } from './notifications';
+import { createNotificationsForUsers, notifyAdmins } from './notifications';
+import { formatDateLabel, periodLabelForDate, toDateOnly } from './contributions';
 
 const AVATAR_STYLES = [
   { background: '#E0F2EC', color: '#0D4F42' },
@@ -128,6 +129,19 @@ function contributionState(owner) {
 
 function roleLabel(owner) {
   return (owner.role || '').toLowerCase() === 'admin' ? 'Admin' : 'Owner';
+}
+
+function contributionStatusForPeriod(contribution, fallbackDueDate) {
+  const dueDate = toDateOnly(contribution?.due_date || fallbackDueDate);
+  const dueDiff = dueDate ? dayDiffFromToday(dueDate) : null;
+  const isPaid = (contribution?.status || '').toLowerCase() === 'paid';
+  if (isPaid) {
+    return { label: 'Paid', toneClass: 'badge-green' };
+  }
+  if (Number.isFinite(dueDiff) && dueDiff >= 0) {
+    return { label: `Due ${formatDateLabel(dueDate)}`, toneClass: 'badge-amber' };
+  }
+  return { label: 'Overdue', toneClass: 'badge-red' };
 }
 
 function storageKeyForMessages(buildingId, userId) {
@@ -285,6 +299,10 @@ function Owners({
   const [currentUser, setCurrentUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [senderName, setSenderName] = useState('Neighbour');
+  const [currentPeriodLabel, setCurrentPeriodLabel] = useState('');
+  const [currentPeriodDueDate, setCurrentPeriodDueDate] = useState('');
+  const [currentFrequency, setCurrentFrequency] = useState('quarterly');
+  const [periodContribByOwnerId, setPeriodContribByOwnerId] = useState({});
 
   const [selectedOwnerId, setSelectedOwnerId] = useState(null);
   const [contribByOwnerId, setContribByOwnerId] = useState({});
@@ -310,8 +328,16 @@ function Owners({
   const chatEndRef = useRef(null);
 
   const ownersWithState = useMemo(
-    () => owners.map((owner) => ({ owner, contribution: contributionState(owner) })),
-    [owners]
+    () =>
+      owners.map((owner) => {
+        const periodContribution = periodContribByOwnerId[owner.id] || null;
+        return {
+          owner,
+          contribution: contributionState(owner),
+          periodStatus: contributionStatusForPeriod(periodContribution, currentPeriodDueDate),
+        };
+      }),
+    [owners, periodContribByOwnerId, currentPeriodDueDate]
   );
   const selectedOwner = useMemo(() => owners.find((o) => o.id === selectedOwnerId) || null, [owners, selectedOwnerId]);
   const selectedContribution = selectedOwner ? contributionState(selectedOwner) : null;
@@ -338,7 +364,11 @@ function Owners({
 
     const [ownersRes, buildingRes, messagesRes] = await Promise.all([
       supabase.from('owners').select('*').eq('building_id', buildingId),
-      supabase.from('buildings').select('id, address, postcode, name').eq('id', buildingId).maybeSingle(),
+      supabase
+        .from('buildings')
+        .select('id, address, postcode, name, contribution_amount, contribution_frequency, contribution_next_due_date')
+        .eq('id', buildingId)
+        .maybeSingle(),
       supabase
         .from('messages')
         .select('id, building_id, user_id, sender_name, message_text, created_at')
@@ -355,8 +385,34 @@ function Owners({
     }
 
     setBuilding(buildingRes.data || null);
+    const periodDue = toDateOnly(buildingRes.data?.contribution_next_due_date) || '';
+    const periodFreq = (buildingRes.data?.contribution_frequency || 'quarterly').toLowerCase();
+    const periodLabel = periodDue ? periodLabelForDate(periodDue, periodFreq) : '';
+    setCurrentPeriodDueDate(periodDue);
+    setCurrentFrequency(periodFreq);
+    setCurrentPeriodLabel(periodLabel);
+
     const sorted = sortOwners((ownersRes.data || []).filter((o) => (o.status || '').toLowerCase() !== 'removed'));
     setOwners(sorted);
+    if (periodLabel) {
+      const { data: periodRows, error: periodErr } = await supabase
+        .from('contributions')
+        .select('id, owner_id, amount, due_date, status, period_label, paid_date')
+        .eq('building_id', buildingId)
+        .eq('period_label', periodLabel);
+      if (periodErr && periodErr.code !== '42P01') {
+        setMessagesError(periodErr.message);
+      } else {
+        const byOwner = {};
+        for (const row of periodRows || []) {
+          if (!row.owner_id) continue;
+          byOwner[row.owner_id] = row;
+        }
+        setPeriodContribByOwnerId(byOwner);
+      }
+    } else {
+      setPeriodContribByOwnerId({});
+    }
 
     const me =
       sorted.find((o) => o.user_id && o.user_id === user?.id) ||
@@ -542,26 +598,70 @@ We recommend speaking to a solicitor before taking this step.`;
 
   async function markAsPaid(owner) {
     if (!window.confirm(`Mark ${owner.name || 'this owner'} as paid?`)) return;
+    const periodContribution = periodContribByOwnerId[owner.id] || null;
+    const amountPaid = Math.max(0, Number(periodContribution?.amount) || Number(building?.contribution_amount) || 0);
+    const dueDate = toDateOnly(periodContribution?.due_date || currentPeriodDueDate || new Date().toISOString());
+    const periodLabel =
+      periodContribution?.period_label || currentPeriodLabel || periodLabelForDate(dueDate, currentFrequency);
+    if (!periodLabel) {
+      setFlash('Set contribution settings first so a period can be tracked.');
+      return;
+    }
+
     setOwnerBusyId(owner.id);
-    const amountPaid = Math.max(0, Number(owner.balance) || 0);
     const today = new Date().toISOString().slice(0, 10);
-    const updRes = await supabase.from('owners').update({ balance: 0, status: 'active' }).eq('id', owner.id);
-    if (!updRes.error) {
-      await supabase.from('contributions').insert({
+    let contribError = null;
+    if (periodContribution?.id) {
+      const { error: updContribErr } = await supabase
+        .from('contributions')
+        .update({ status: 'paid', paid_date: today })
+        .eq('id', periodContribution.id);
+      contribError = updContribErr;
+    } else {
+      const { error: insContribErr } = await supabase.from('contributions').insert({
         building_id: buildingId,
         owner_id: owner.id,
         amount: amountPaid,
+        due_date: dueDate,
+        period_label: periodLabel,
         status: 'paid',
         paid_date: today,
         created_at: new Date().toISOString(),
       });
+      contribError = insContribErr;
     }
+
+    if (!contribError && amountPaid > 0) {
+      await supabase.from('transactions').insert({
+        building_id: buildingId,
+        description: `Contribution received - ${owner.name || owner.flat || 'Owner'} (${periodLabel})`,
+        amount: amountPaid,
+        type: 'in',
+        status: 'complete',
+        date: `${today}T12:00:00.000Z`,
+      });
+    }
+
+    if (!contribError && owner.user_id) {
+      await createNotificationsForUsers({
+        userIds: [owner.user_id],
+        buildingId,
+        title: 'Contribution received',
+        message: `Your £${Math.round(amountPaid)} contribution for ${periodLabel} has been marked as paid. Thanks!`,
+        type: 'contribution',
+        targetScreen: 'fund',
+        targetId: owner.id,
+        eventKey: `contribution_paid:${owner.id}:${periodLabel}`,
+      });
+    }
+
+    const updRes = await supabase.from('owners').update({ status: 'active' }).eq('id', owner.id);
     setOwnerBusyId(null);
-    if (updRes.error) {
-      setFlash(updRes.error.message);
+    if (contribError || updRes.error) {
+      setFlash(contribError?.message || updRes.error?.message || 'Could not mark as paid.');
       return;
     }
-    setFlash(`${owner.name || 'Owner'} marked as paid.`);
+    setFlash(`${owner.name || 'Owner'} marked as paid for ${periodLabel}.`);
     await loadData();
   }
 
@@ -706,6 +806,9 @@ We recommend speaking to a solicitor before taking this step.`;
                   Close
                 </button>
               </div>
+              <div className="owners-modal-label">
+                Copy this and send directly to the owner as a formal written notice.
+              </div>
               <div className="owners-modal-message">{formalNoticeText(activeOwner)}</div>
               <div className="fund-form-actions">
                 <button
@@ -728,31 +831,25 @@ We recommend speaking to a solicitor before taking this step.`;
           <div className="owners-modal-backdrop" role="dialog" aria-modal="true">
             <div className="owners-modal">
               <div className="fund-section-head">
-                <div className="slabel">Notice of Potential Liability</div>
+                <div className="slabel">Your legal options</div>
                 <button type="button" className="owners-modal-close-btn" onClick={closeAllModals}>
                   Close
                 </button>
               </div>
-              <div className="owners-modal-message">{nplText(activeOwner)}</div>
+              <div className="owners-modal-label">
+                This is for your information only - not something to send to the owner.
+              </div>
+              <div className="owners-modal-message">
+                {`If the owner continues to refuse payment, you can take the following legal steps:\n\n${nplText(activeOwner)}`}
+              </div>
               <div className="fund-form-actions">
                 <button
                   type="button"
-                  className="fund-form-submit"
-                  onClick={async () => {
-                    await copyToClipboard(nplText(activeOwner), 'NPL guidance copied.');
-                    setModalCopied('Copied!');
-                  }}
-                >
-                  Copy guidance
-                </button>
-                <button
-                  type="button"
-                  className="owners-action-btn"
+                  className="fund-form-submit owners-modal-link-btn"
                   onClick={() => window.open('https://www.ros.gov.uk', '_blank', 'noopener,noreferrer')}
                 >
                   Go to ros.gov.uk
                 </button>
-                {modalCopied && <span className="owners-copied-text">{modalCopied}</span>}
               </div>
             </div>
           </div>
@@ -766,6 +863,9 @@ We recommend speaking to a solicitor before taking this step.`;
                 <button type="button" className="owners-modal-close-btn" onClick={closeAllModals}>
                   Close
                 </button>
+              </div>
+              <div className="owners-modal-label">
+                Copy this and send directly to the owner via WhatsApp or email.
               </div>
               <div className="owners-modal-message">{reminderTemplate(activeOwner)}</div>
               <div className="fund-form-actions">
@@ -907,7 +1007,7 @@ We recommend speaking to a solicitor before taking this step.`;
               <div className="owner-flat">Owners will appear here once they join.</div>
             </div>
           ) : (
-            ownersWithState.map(({ owner, contribution }, i) => (
+            ownersWithState.map(({ owner, periodStatus }, i) => (
               <button key={owner.id} type="button" className="owner-row owners-row-btn" onClick={() => setSelectedOwnerId(owner.id)}>
                 <div className="avatar" style={AVATAR_STYLES[i % AVATAR_STYLES.length]}>
                   {initialsFromOwner(owner)}
@@ -918,13 +1018,7 @@ We recommend speaking to a solicitor before taking this step.`;
                     {owner.flat || '—'} · {roleLabel(owner)} · Joined {formatDate(ownerJoinDate(owner))}
                   </div>
                 </div>
-                {contribution.severe ? (
-                  <span className="owner-badge badge-red">Overdue</span>
-                ) : (
-                  <span className={`owner-badge ${(owner.role || '').toLowerCase() === 'admin' ? 'badge-green' : 'badge-gray'}`}>
-                    {roleLabel(owner)}
-                  </span>
-                )}
+                <span className={`owner-badge ${periodStatus.toneClass}`}>{periodStatus.label}</span>
               </button>
             ))
           )}

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from './supabase';
+import { periodDescriptor, periodLabelForDate, toDateOnly } from './contributions';
 
 function formatMoney(amount) {
   const n = Number(amount);
@@ -49,6 +50,12 @@ function formatRelativeTime(dateStr) {
 
 const ACT_BADGES = ['badge-moss', 'badge-sand', 'badge-clay'];
 
+function cleanActivityTitle(title) {
+  const cleaned = String(title || '').replace(/—/g, '-').trim();
+  if (!cleaned) return 'Untitled vote';
+  return cleaned.length > 50 ? `${cleaned.slice(0, 47)}...` : cleaned;
+}
+
 function formatLongDate(dateStr) {
   if (!dateStr) return '';
   const d = new Date(dateStr);
@@ -93,6 +100,7 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick, onOpenFund, onOpenOw
   const [votes, setVotes] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [targetFund, setTargetFund] = useState(null);
+  const [contributionTag, setContributionTag] = useState('Contribution settings not set');
   const [isAdmin, setIsAdmin] = useState(false);
   const [ownerId, setOwnerId] = useState(null);
   const [votedVoteIds, setVotedVoteIds] = useState(() => new Set());
@@ -141,14 +149,24 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick, onOpenFund, onOpenOw
         .select('id, title, urgency, status')
         .eq('building_id', buildingId);
 
-      const buildingReq = supabase.from('buildings').select('target_fund').eq('id', buildingId).maybeSingle();
+      const buildingReq = supabase
+        .from('buildings')
+        .select('target_fund, contribution_amount, contribution_frequency, contribution_next_due_date')
+        .eq('id', buildingId)
+        .maybeSingle();
+      const contributionsReq = supabase
+        .from('contributions')
+        .select('owner_id, status, period_label')
+        .eq('building_id', buildingId)
+        .limit(800);
 
-      const [txRes, ownersRes, votesRes, jobsRes, buildingRes] = await Promise.all([
+      const [txRes, ownersRes, votesRes, jobsRes, buildingRes, contribRes] = await Promise.all([
         txReq,
         ownersReq,
         votesReq,
         jobsReq,
         buildingReq,
+        contributionsReq,
       ]);
 
       if (cancelled) return;
@@ -188,6 +206,13 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick, onOpenFund, onOpenOw
         }
         return;
       }
+      if (contribRes.error && contribRes.error.code !== '42P01') {
+        if (!cancelled) {
+          setError(contribRes.error.message);
+          setLoading(false);
+        }
+        return;
+      }
 
       const voteList = votesRes.data || [];
       const ownerList = ownersRes.data || [];
@@ -220,6 +245,26 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick, onOpenFund, onOpenOw
       }
 
       if (cancelled) return;
+
+      const periodDue = toDateOnly(buildingRes.data?.contribution_next_due_date);
+      const periodFrequency = buildingRes.data?.contribution_frequency || 'quarterly';
+      const periodLabel = periodDue ? periodLabelForDate(periodDue, periodFrequency) : '';
+      const activeOwnerIds = new Set(
+        ownerList
+          .filter((o) => !['removed', 'invited', 'invite_sent', 'pending'].includes((o.status || '').toLowerCase()))
+          .map((o) => o.id)
+          .filter(Boolean)
+      );
+      if (!periodLabel) {
+        setContributionTag('Contribution settings not set');
+      } else {
+        const contribRows = (contribRes.data || []).filter(
+          (r) => r.period_label === periodLabel && activeOwnerIds.has(r.owner_id)
+        );
+        const paidCount = contribRows.filter((r) => (r.status || '').toLowerCase() === 'paid').length;
+        const totalContribOwners = contribRows.length || activeOwnerIds.size;
+        setContributionTag(`${paidCount} of ${totalContribOwners} paid ${periodDescriptor(periodFrequency)}`);
+      }
 
       setTransactions(txRes.data || []);
       setOwners(ownerList);
@@ -356,12 +401,13 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick, onOpenFund, onOpenOw
     const yes = Number(v.yes_count) || 0;
     const no = Number(v.no_count) || 0;
     const ref = open ? v.created_at || v.closes_at : v.closes_at;
+    const safeTitle = cleanActivityTitle(v.title);
     if (open) {
       return {
         id: v.id,
         badgeTone: ACT_BADGES[i % ACT_BADGES.length],
         icon: '🗳',
-        text: `Vote open · ${v.title}`,
+        text: `Vote open - ${safeTitle}`,
         time: formatRelativeTime(ref),
       };
     }
@@ -371,8 +417,8 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick, onOpenFund, onOpenOw
       badgeTone: ACT_BADGES[i % ACT_BADGES.length],
       icon: '✓',
       text: passed
-        ? `Vote passed — ${v.title} (${yes} yes, ${no} no)`
-        : `Vote declined — ${v.title} (${yes} yes, ${no} no)`,
+        ? `Vote passed - ${safeTitle} (${yes} yes, ${no} no)`
+        : `Vote declined - ${safeTitle} (${yes} yes, ${no} no)`,
       time: formatRelativeTime(ref),
     };
   });
@@ -458,7 +504,7 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick, onOpenFund, onOpenOw
         >
           <div className="metric-val">{error ? '—' : formatMoney(balance)}</div>
           <div className="metric-label">Building fund</div>
-          <div className="metric-tag">{error ? '—' : 'Live from transactions'}</div>
+          <div className="metric-tag">{error ? '—' : contributionTag}</div>
           {typeof onOpenFund === 'function' && (
             <span className="metric-link-arrow" aria-hidden>
               →

@@ -907,6 +907,14 @@ button.owner-row {
   white-space: pre-wrap;
 }
 
+.owners-modal-label {
+  margin-top: 4px;
+  color: #7a6254;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
 .owners-modal-close-btn {
   border: none;
   background: transparent;
@@ -922,6 +930,16 @@ button.owner-row {
   color: #9f3f24;
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+.owners-modal-link-btn {
+  flex: 0 0 auto;
+  background: var(--cl-teal);
+  box-shadow: 0 3px 10px rgba(26, 122, 101, 0.28);
+}
+
+.owners-modal-link-btn:hover:not(:disabled) {
+  filter: brightness(1.05);
 }
 
 .owners-copied-text {
