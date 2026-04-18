@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabase';
 import { createNotificationsForUsers, notifyAdmins } from './notifications';
-import { formatDateLabel, periodLabelForDate, toDateOnly } from './contributions';
+import { periodLabelForDate, toDateOnly } from './contributions';
 
 const AVATAR_STYLES = [
   { background: '#E0F2EC', color: '#0D4F42' },
@@ -76,72 +76,72 @@ function dayDiffFromToday(value) {
   return Math.round((d.getTime() - today.getTime()) / 86400000);
 }
 
-function ownerDueDate(owner) {
-  return owner.contribution_due_date || owner.due_date || owner.payment_due_date || owner.next_due_date || null;
-}
-
 function ownerJoinDate(owner) {
   return owner.joined_at || owner.created_at || null;
-}
-
-function ownerOverdueDays(owner) {
-  const num =
-    Number(owner.overdue_days) ||
-    Number(owner.days_overdue) ||
-    Number(owner.payment_days_overdue) ||
-    Number(owner.arrears_days);
-  if (Number.isFinite(num) && num > 0) return Math.floor(num);
-  const overdueSince =
-    owner.overdue_since || owner.overdue_at || owner.payment_overdue_since || owner.balance_overdue_since || null;
-  const overdueFromStamp = dayDiffFromToday(overdueSince);
-  if (Number.isFinite(overdueFromStamp) && overdueFromStamp < 0) return Math.abs(overdueFromStamp);
-  const due = ownerDueDate(owner);
-  const dueDiff = dayDiffFromToday(due);
-  if (Number.isFinite(dueDiff) && dueDiff < 0) return Math.abs(dueDiff);
-  return null;
-}
-
-function contributionState(owner) {
-  const balance = Math.max(0, Number(owner.balance) || 0);
-  const overdueDays = ownerOverdueDays(owner);
-  const overdueWeeks = Number.isFinite(overdueDays) ? Math.floor(overdueDays / 7) : 0;
-  const severe = Number.isFinite(overdueDays) && overdueDays >= 28;
-  const dueDate = ownerDueDate(owner);
-  const dueDiff = dayDiffFromToday(dueDate);
-
-  if (balance <= 0) {
-    return { label: 'Paid', overdueDays: 0, overdueWeeks: 0, severe: false, amount: 0 };
-  }
-  if (Number.isFinite(dueDiff) && dueDiff >= 0) {
-    return { label: 'Not yet due', overdueDays: 0, overdueWeeks: 0, severe: false, amount: balance };
-  }
-  if (Number.isFinite(overdueDays) && overdueDays > 0) {
-    return {
-      label: overdueDays >= 28 ? 'Significantly overdue' : `Overdue ${overdueDays} days`,
-      overdueDays,
-      overdueWeeks,
-      severe,
-      amount: balance,
-    };
-  }
-  return { label: 'Outstanding', overdueDays: null, overdueWeeks: 0, severe: false, amount: balance };
 }
 
 function roleLabel(owner) {
   return (owner.role || '').toLowerCase() === 'admin' ? 'Admin' : 'Owner';
 }
 
-function contributionStatusForPeriod(contribution, fallbackDueDate) {
-  const dueDate = toDateOnly(contribution?.due_date || fallbackDueDate);
-  const dueDiff = dueDate ? dayDiffFromToday(dueDate) : null;
-  const isPaid = (contribution?.status || '').toLowerCase() === 'paid';
-  if (isPaid) {
-    return { label: 'Paid', toneClass: 'badge-green' };
+/** Current-period row: Paid / Pending / Overdue from contributions only. */
+function paymentStatusFromPeriodRow(row) {
+  if (!row) {
+    return {
+      label: 'No record for this period',
+      toneClass: 'badge-gray',
+      amount: null,
+      dueDate: null,
+      periodLabel: null,
+      paidDate: null,
+    };
   }
-  if (Number.isFinite(dueDiff) && dueDiff >= 0) {
-    return { label: `Due ${formatDateLabel(dueDate)}`, toneClass: 'badge-amber' };
+  const st = (row.status || '').toLowerCase();
+  const amount = Number(row.amount);
+  const periodLabel = row.period_label || null;
+  const dueDate = row.due_date || null;
+  const paidDate = row.paid_date || null;
+  if (st === 'paid') {
+    return {
+      label: 'Paid',
+      toneClass: 'badge-green',
+      amount: Number.isFinite(amount) ? amount : null,
+      dueDate,
+      periodLabel,
+      paidDate,
+    };
   }
-  return { label: 'Overdue', toneClass: 'badge-red' };
+  const dueIso = toDateOnly(row.due_date);
+  const dueDiff = dueIso ? dayDiffFromToday(dueIso) : null;
+  if (Number.isFinite(dueDiff) && dueDiff < 0) {
+    return {
+      label: 'Overdue',
+      toneClass: 'badge-red',
+      amount: Number.isFinite(amount) ? amount : null,
+      dueDate,
+      periodLabel,
+      paidDate: null,
+    };
+  }
+  return {
+    label: 'Pending',
+    toneClass: 'badge-amber',
+    amount: Number.isFinite(amount) ? amount : null,
+    dueDate,
+    periodLabel,
+    paidDate: null,
+  };
+}
+
+/** Owner list badge: overdue if any pending contribution with past due_date; else current period row. */
+function listContributionBadge(periodRow, hasPendingPastDue) {
+  if (hasPendingPastDue) {
+    return { label: 'Overdue', toneClass: 'badge-red' };
+  }
+  if (!periodRow) {
+    return { label: '—', toneClass: 'badge-gray' };
+  }
+  return paymentStatusFromPeriodRow(periodRow);
 }
 
 function storageKeyForMessages(buildingId, userId) {
@@ -150,7 +150,8 @@ function storageKeyForMessages(buildingId, userId) {
 
 function OwnerDetailView({
   selectedOwner,
-  selectedContribution,
+  detailPayment,
+  showContribOverdueBadge,
   isAdmin,
   ownerContribRows,
   contribLoading,
@@ -168,7 +169,6 @@ function OwnerDetailView({
   onCloseModals,
 }) {
   if (!selectedOwner) return null;
-  const contribution = selectedContribution;
 
   return (
     <>
@@ -182,7 +182,7 @@ function OwnerDetailView({
             {selectedOwner.flat || '—'} · Joined {formatDate(ownerJoinDate(selectedOwner))}
           </div>
           {isAdmin && <div className="q-support">Role: {roleLabel(selectedOwner)}</div>}
-          {contribution?.severe && <span className="owner-badge badge-red">Overdue</span>}
+          {showContribOverdueBadge && <span className="owner-badge badge-red">Overdue</span>}
         </div>
       </section>
 
@@ -191,11 +191,21 @@ function OwnerDetailView({
           <section className="home-section">
             <div className="slabel">Payment status</div>
             <div className="qcard">
-              <div className="q-support">{contribution.label}</div>
-              {Number.isFinite(contribution.overdueWeeks) && contribution.overdueWeeks > 0 && (
-                <div className="q-detail">{contribution.overdueWeeks} week{contribution.overdueWeeks === 1 ? '' : 's'} overdue</div>
+              <div className="q-support">
+                <span className={`owner-badge ${detailPayment.toneClass}`}>{detailPayment.label}</span>
+              </div>
+              {detailPayment.periodLabel && (
+                <div className="q-detail">Period: {detailPayment.periodLabel}</div>
               )}
-              {contribution.severe && <div className="owner-overdue-amount">{formatMoney(contribution.amount)} outstanding</div>}
+              {detailPayment.dueDate && (
+                <div className="q-detail">Due {formatDate(detailPayment.dueDate)}</div>
+              )}
+              {Number.isFinite(detailPayment.amount) && detailPayment.amount != null && (
+                <div className="q-detail">Amount {formatMoney(detailPayment.amount)}</div>
+              )}
+              {detailPayment.label === 'Paid' && detailPayment.paidDate && (
+                <div className="q-detail">Paid on {formatDate(detailPayment.paidDate)}</div>
+              )}
             </div>
           </section>
 
@@ -210,9 +220,11 @@ function OwnerDetailView({
                 ownerContribRows.map((row) => (
                   <div key={row.id} className="owner-row">
                     <div>
-                      <div className="owner-name">{formatMoney(row.amount)}</div>
+                      <div className="owner-name">{row.period_label || '—'}</div>
                       <div className="owner-flat">
-                        {row.status || 'recorded'} · {formatDate(row.paid_date || row.created_at)}
+                        {formatMoney(row.amount)} · {(row.status || 'recorded').replace(/^\w/, (c) => c.toUpperCase())}
+                        {row.paid_date ? ` · Paid ${formatDate(row.paid_date)}` : ''}
+                        {row.due_date ? ` · Due ${formatDate(row.due_date)}` : ''}
                       </div>
                     </div>
                   </div>
@@ -303,6 +315,7 @@ function Owners({
   const [currentPeriodDueDate, setCurrentPeriodDueDate] = useState('');
   const [currentFrequency, setCurrentFrequency] = useState('quarterly');
   const [periodContribByOwnerId, setPeriodContribByOwnerId] = useState({});
+  const [overduePendingOwnerIds, setOverduePendingOwnerIds] = useState([]);
 
   const [selectedOwnerId, setSelectedOwnerId] = useState(null);
   const [contribByOwnerId, setContribByOwnerId] = useState({});
@@ -327,20 +340,26 @@ function Owners({
 
   const chatEndRef = useRef(null);
 
+  const overduePendingSet = useMemo(() => new Set(overduePendingOwnerIds), [overduePendingOwnerIds]);
+
   const ownersWithState = useMemo(
     () =>
       owners.map((owner) => {
         const periodContribution = periodContribByOwnerId[owner.id] || null;
+        const hasPendingPastDue = overduePendingSet.has(owner.id);
         return {
           owner,
-          contribution: contributionState(owner),
-          periodStatus: contributionStatusForPeriod(periodContribution, currentPeriodDueDate),
+          listBadge: listContributionBadge(periodContribution, hasPendingPastDue),
         };
       }),
-    [owners, periodContribByOwnerId, currentPeriodDueDate]
+    [owners, periodContribByOwnerId, overduePendingSet]
   );
   const selectedOwner = useMemo(() => owners.find((o) => o.id === selectedOwnerId) || null, [owners, selectedOwnerId]);
-  const selectedContribution = selectedOwner ? contributionState(selectedOwner) : null;
+  const detailPayment = useMemo(() => {
+    if (!selectedOwner) return paymentStatusFromPeriodRow(null);
+    return paymentStatusFromPeriodRow(periodContribByOwnerId[selectedOwner.id] || null);
+  }, [selectedOwner, periodContribByOwnerId]);
+  const showContribOverdueBadge = Boolean(selectedOwner && overduePendingSet.has(selectedOwner.id));
 
   const unreadMessagesCount = useMemo(() => {
     if (!lastSeenMessageAt) {
@@ -394,6 +413,32 @@ function Owners({
 
     const sorted = sortOwners((ownersRes.data || []).filter((o) => (o.status || '').toLowerCase() !== 'removed'));
     setOwners(sorted);
+
+    const todayIso = toDateOnly(new Date());
+    const { data: overdueContribRows, error: overdueContribErr } = await supabase
+      .from('contributions')
+      .select('owner_id, due_date, status')
+      .eq('building_id', buildingId)
+      .not('due_date', 'is', null)
+      .lt('due_date', todayIso);
+
+    const oldestPendingPastDueByOwner = {};
+    if (!overdueContribErr && overdueContribRows?.length) {
+      const pendingPast = overdueContribRows.filter(
+        (r) => r.owner_id && String(r.status || '').toLowerCase() === 'pending'
+      );
+      setOverduePendingOwnerIds([...new Set(pendingPast.map((r) => r.owner_id))]);
+      for (const r of pendingPast) {
+        const d = toDateOnly(r.due_date);
+        if (!d) continue;
+        const oid = r.owner_id;
+        const prev = oldestPendingPastDueByOwner[oid];
+        if (!prev || d < prev) oldestPendingPastDueByOwner[oid] = d;
+      }
+    } else {
+      setOverduePendingOwnerIds([]);
+    }
+
     if (periodLabel) {
       const { data: periodRows, error: periodErr } = await supabase
         .from('contributions')
@@ -440,18 +485,22 @@ function Owners({
       setLastSeenMessageAt(seen || null);
     }
 
-    // Event: owner is 4+ weeks overdue -> notify admins.
-    for (const owner of sorted) {
-      const c = contributionState(owner);
-      if (!c.severe) continue;
-      await notifyAdmins({
-        buildingId,
-        title: `${owner.name || 'An owner'} is 4+ weeks overdue`,
-        message: `${owner.flat || 'Their flat'} has an overdue contribution that may need follow-up.`,
-        targetScreen: 'owners',
-        targetId: owner.id,
-        eventKey: `owner_overdue_4w:${owner.id}`,
-      });
+    // Event: pending contribution due 28+ days ago -> notify admins.
+    if (!overdueContribErr || overdueContribErr.code === '42P01') {
+      for (const owner of sorted) {
+        const oldest = oldestPendingPastDueByOwner[owner.id];
+        if (!oldest) continue;
+        const diff = dayDiffFromToday(oldest);
+        if (!Number.isFinite(diff) || diff > -28) continue;
+        await notifyAdmins({
+          buildingId,
+          title: `${owner.name || 'An owner'} is 4+ weeks overdue`,
+          message: `${owner.flat || 'Their flat'} has an overdue contribution that may need follow-up.`,
+          targetScreen: 'owners',
+          targetId: owner.id,
+          eventKey: `owner_overdue_4w:${owner.id}`,
+        });
+      }
     }
 
     setLoading(false);
@@ -500,17 +549,18 @@ function Owners({
   }, [focusOwnerId, owners, loading, onOwnerFocusConsumed]);
 
   useEffect(() => {
-    if (!selectedOwnerId || !isAdmin) return;
+    if (!selectedOwnerId || !isAdmin || !buildingId) return;
     if (contribByOwnerId[selectedOwnerId]) return;
     let cancelled = false;
     (async () => {
       setContribLoading(true);
       const { data, error: contribErr } = await supabase
         .from('contributions')
-        .select('id, owner_id, amount, status, paid_date, created_at')
+        .select('id, owner_id, building_id, amount, status, paid_date, due_date, period_label, created_at')
+        .eq('building_id', buildingId)
         .eq('owner_id', selectedOwnerId)
-        .order('created_at', { ascending: false })
-        .limit(100);
+        .order('due_date', { ascending: false })
+        .order('created_at', { ascending: false });
       if (cancelled) return;
       setContribLoading(false);
       if (contribErr) {
@@ -523,7 +573,7 @@ function Owners({
     return () => {
       cancelled = true;
     };
-  }, [selectedOwnerId, isAdmin, contribByOwnerId]);
+  }, [selectedOwnerId, isAdmin, buildingId, contribByOwnerId]);
 
   function buildingAddressLine() {
     const parts = [building?.address, building?.postcode].filter(Boolean);
@@ -607,29 +657,17 @@ We recommend speaking to a solicitor before taking this step.`;
       setFlash('Set contribution settings first so a period can be tracked.');
       return;
     }
+    if (!periodContribution?.id) {
+      setFlash('No contribution row for this owner and period. Generate the schedule in Building settings first.');
+      return;
+    }
 
     setOwnerBusyId(owner.id);
     const today = new Date().toISOString().slice(0, 10);
-    let contribError = null;
-    if (periodContribution?.id) {
-      const { error: updContribErr } = await supabase
-        .from('contributions')
-        .update({ status: 'paid', paid_date: today })
-        .eq('id', periodContribution.id);
-      contribError = updContribErr;
-    } else {
-      const { error: insContribErr } = await supabase.from('contributions').insert({
-        building_id: buildingId,
-        owner_id: owner.id,
-        amount: amountPaid,
-        due_date: dueDate,
-        period_label: periodLabel,
-        status: 'paid',
-        paid_date: today,
-        created_at: new Date().toISOString(),
-      });
-      contribError = insContribErr;
-    }
+    const { error: contribError } = await supabase
+      .from('contributions')
+      .update({ status: 'paid', paid_date: today })
+      .eq('id', periodContribution.id);
 
     if (!contribError && amountPaid > 0) {
       await supabase.from('transactions').insert({
@@ -655,12 +693,16 @@ We recommend speaking to a solicitor before taking this step.`;
       });
     }
 
-    const updRes = await supabase.from('owners').update({ status: 'active' }).eq('id', owner.id);
     setOwnerBusyId(null);
-    if (contribError || updRes.error) {
-      setFlash(contribError?.message || updRes.error?.message || 'Could not mark as paid.');
+    if (contribError) {
+      setFlash(contribError.message || 'Could not mark as paid.');
       return;
     }
+    setContribByOwnerId((prev) => {
+      const next = { ...prev };
+      delete next[owner.id];
+      return next;
+    });
     setFlash(`${owner.name || 'Owner'} marked as paid for ${periodLabel}.`);
     await loadData();
   }
@@ -904,7 +946,8 @@ We recommend speaking to a solicitor before taking this step.`;
         ) : selectedOwner ? (
           <OwnerDetailView
             selectedOwner={selectedOwner}
-            selectedContribution={selectedContribution}
+            detailPayment={detailPayment}
+            showContribOverdueBadge={showContribOverdueBadge}
             isAdmin={isAdmin}
             ownerContribRows={ownerContribRows}
             contribLoading={contribLoading}
@@ -1007,7 +1050,7 @@ We recommend speaking to a solicitor before taking this step.`;
               <div className="owner-flat">Owners will appear here once they join.</div>
             </div>
           ) : (
-            ownersWithState.map(({ owner, periodStatus }, i) => (
+            ownersWithState.map(({ owner, listBadge }, i) => (
               <button key={owner.id} type="button" className="owner-row owners-row-btn" onClick={() => setSelectedOwnerId(owner.id)}>
                 <div className="avatar" style={AVATAR_STYLES[i % AVATAR_STYLES.length]}>
                   {initialsFromOwner(owner)}
@@ -1018,7 +1061,7 @@ We recommend speaking to a solicitor before taking this step.`;
                     {owner.flat || '—'} · {roleLabel(owner)} · Joined {formatDate(ownerJoinDate(owner))}
                   </div>
                 </div>
-                <span className={`owner-badge ${periodStatus.toneClass}`}>{periodStatus.label}</span>
+                <span className={`owner-badge ${listBadge.toneClass}`}>{listBadge.label}</span>
               </button>
             ))
           )}
