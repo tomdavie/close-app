@@ -413,6 +413,9 @@ function Home({ buildingId, onOpenInvite, onVoteAlertClick }) {
                   <div className="card-title">{alert.title}</div>
                   <div className="card-sub">{alert.detail}</div>
                 </div>
+                <span className="alert-strip-arrow" aria-hidden>
+                  →
+                </span>
               </button>
             ) : (
               <div key={alert.id} className={`alert-strip ${alert.tone}`}>
