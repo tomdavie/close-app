@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabase';
-import { notifyAdmins, notifyOtherOwners } from './notifications';
+import { notifyAdmins } from './notifications';
 
 const AVATAR_STYLES = [
   { background: '#E0F2EC', color: '#0D4F42' },
@@ -157,9 +157,11 @@ function Owners({ buildingId, focusOwnerId, openMessagesOnFocus, onOwnerFocusCon
   const [lastSeenMessageAt, setLastSeenMessageAt] = useState(null);
 
   const [flash, setFlash] = useState(null);
+  const [reminderModalOwner, setReminderModalOwner] = useState(null);
   const [formalModalOwner, setFormalModalOwner] = useState(null);
   const [nplModalOwner, setNplModalOwner] = useState(null);
   const [ownerBusyId, setOwnerBusyId] = useState(null);
+  const [modalCopied, setModalCopied] = useState('');
 
   const chatEndRef = useRef(null);
 
@@ -266,6 +268,12 @@ function Owners({ buildingId, focusOwnerId, openMessagesOnFocus, onOwnerFocusCon
   }, [flash]);
 
   useEffect(() => {
+    if (!modalCopied) return undefined;
+    const t = setTimeout(() => setModalCopied(''), 1400);
+    return () => clearTimeout(t);
+  }, [modalCopied]);
+
+  useEffect(() => {
     if (!showMessages) return;
     const nowIso = new Date().toISOString();
     setLastSeenMessageAt(nowIso);
@@ -331,23 +339,34 @@ function Owners({ buildingId, focusOwnerId, openMessagesOnFocus, onOwnerFocusCon
   }
 
   function reminderTemplate(owner) {
-    const c = contributionState(owner);
-    const amount = formatMoney(c.amount);
-    return `Hi ${owner.name || 'there'}, just a friendly reminder that your building contribution of ${amount} for ${buildingAddressLine()} is overdue. You can log into Clōse to make a payment. Thanks!`;
+    return `Hi ${owner.name || 'there'}, just a friendly reminder that your building contribution for ${buildingAddressLine()} is overdue. You can log into Clōse to sort this. Thanks!`;
   }
 
   function formalNoticeText(owner) {
-    const c = contributionState(owner);
-    const weeks = Math.max(1, c.overdueWeeks || 1);
-    return `Dear ${owner.name || 'Owner'}, This is a formal notice that your contribution of ${formatMoney(c.amount)} to the building fund at ${buildingAddressLine()} is now ${weeks} week${weeks === 1 ? '' : 's'} overdue. Please arrange payment within 14 days to avoid further action.`;
+    return `Dear ${owner.name || 'owner'},
+
+This is a formal notice that your contribution to the building fund at ${buildingAddressLine()} is overdue. Please arrange payment within 14 days to avoid further action being taken.
+
+If you have any questions please respond to this message.
+
+Yours sincerely,
+${senderName}
+${buildingAddressLine()}`;
   }
 
   function nplText(owner) {
-    return `A Notice of Potential Liability (NPL) can be registered against the title deeds of ${owner.flat || 'the flat'} for £60 at the Registers of Scotland. This secures the debt and must be repaid before the property can be sold. File at ros.gov.uk.`;
+    return `A Notice of Potential Liability (NPL) can be registered against the title deeds of ${owner.flat || 'the flat'} at ${buildingAddressLine()}.
+
+This costs £60 and must be filed at least 14 days before any property sale. It secures the debt and means it must be repaid before the property can be sold.
+
+To file, visit ros.gov.uk - Registers of Scotland.
+
+We recommend speaking to a solicitor before taking this step.`;
   }
 
-  async function sendReminder(owner) {
-    await copyToClipboard(reminderTemplate(owner), `Reminder copied for ${owner.name || 'owner'}.`);
+  function sendReminder(owner) {
+    setModalCopied('');
+    setReminderModalOwner(owner);
   }
 
   async function markAsPaid(owner) {
@@ -413,16 +432,51 @@ function Owners({ buildingId, focusOwnerId, openMessagesOnFocus, onOwnerFocusCon
     }
     setMessageDraft('');
     setMessages((prev) => [...prev, row]);
-    const preview = text.length > 60 ? `${text.slice(0, 60)}...` : text;
-    await notifyOtherOwners({
-      buildingId,
-      senderUserId: currentUser?.id ?? null,
+    const senderUserId = currentUser?.id ?? null;
+    const preview = text.slice(0, 60);
+    const ownersQuery = supabase
+      .from('owners')
+      .select('user_id')
+      .eq('building_id', buildingId)
+      .not('user_id', 'is', null);
+    if (senderUserId) ownersQuery.neq('user_id', senderUserId);
+    const { data: recipientRows, error: recErr } = await ownersQuery;
+
+    if (recErr) {
+      console.log('[messages->notifications] recipient fetch failed', recErr);
+      return;
+    }
+
+    const recipientUserIds = [...new Set((recipientRows || []).map((r) => r.user_id).filter(Boolean))];
+    console.log('[messages->notifications] sender vs recipients', {
+      senderUserId,
+      recipientUserIds,
+      ownerRowsFound: recipientUserIds.length,
+    });
+
+    if (recipientUserIds.length === 0) {
+      console.log('[messages->notifications] no recipients found, skipping insert');
+      return;
+    }
+
+    const rows = recipientUserIds.map((uid) => ({
+      building_id: buildingId,
+      user_id: uid,
       title: `New message from ${senderName}`,
       message: preview,
       type: 'message',
-      targetScreen: 'messages',
-      targetId: 'messages',
-    });
+      is_read: false,
+      target_screen: 'messages',
+      target_id: null,
+      created_at: new Date().toISOString(),
+    }));
+
+    const { error: notifErr } = await supabase.from('notifications').insert(rows);
+    if (notifErr) {
+      console.log('[messages->notifications] insert failed', notifErr);
+    } else {
+      console.log('[messages->notifications] insert succeeded', { inserted: rows.length });
+    }
   }
 
   async function deleteMessage(msg) {
@@ -513,10 +567,26 @@ function Owners({ buildingId, focusOwnerId, openMessagesOnFocus, onOwnerFocusCon
                   <button type="button" className="owners-action-btn" onClick={() => sendReminder(selectedOwner)} disabled={busy}>
                     Send reminder
                   </button>
-                  <button type="button" className="owners-action-btn" onClick={() => setFormalModalOwner(selectedOwner)} disabled={busy}>
+                  <button
+                    type="button"
+                    className="owners-action-btn"
+                    onClick={() => {
+                      setModalCopied('');
+                      setFormalModalOwner(selectedOwner);
+                    }}
+                    disabled={busy}
+                  >
                     Formal notice
                   </button>
-                  <button type="button" className="owners-action-btn" onClick={() => setNplModalOwner(selectedOwner)} disabled={busy}>
+                  <button
+                    type="button"
+                    className="owners-action-btn"
+                    onClick={() => {
+                      setModalCopied('');
+                      setNplModalOwner(selectedOwner);
+                    }}
+                    disabled={busy}
+                  >
                     Notice of Potential Liability
                   </button>
                   <button type="button" className="owners-action-btn" onClick={() => markAsPaid(selectedOwner)} disabled={busy}>
@@ -659,15 +729,23 @@ function Owners({ buildingId, focusOwnerId, openMessagesOnFocus, onOwnerFocusCon
           <div className="owners-modal">
             <div className="fund-section-head">
               <div className="slabel">Formal notice</div>
-              <button type="button" className="fund-form-cancel" onClick={() => setFormalModalOwner(null)}>
+              <button type="button" className="fund-form-cancel owners-modal-close-btn" onClick={() => setFormalModalOwner(null)}>
                 Close
               </button>
             </div>
             <textarea className="auth-input auth-input-textarea owners-modal-text" readOnly value={formalNoticeText(formalModalOwner)} />
             <div className="fund-form-actions">
-              <button type="button" className="fund-form-submit" onClick={() => copyToClipboard(formalNoticeText(formalModalOwner), 'Formal notice copied.')}>
+              <button
+                type="button"
+                className="fund-form-submit"
+                onClick={async () => {
+                  await copyToClipboard(formalNoticeText(formalModalOwner), 'Formal notice copied.');
+                  setModalCopied('Copied!');
+                }}
+              >
                 Copy notice
               </button>
+              {modalCopied && <span className="owners-copied-text">{modalCopied}</span>}
             </div>
           </div>
         </div>
@@ -678,15 +756,57 @@ function Owners({ buildingId, focusOwnerId, openMessagesOnFocus, onOwnerFocusCon
           <div className="owners-modal">
             <div className="fund-section-head">
               <div className="slabel">Notice of Potential Liability</div>
-              <button type="button" className="fund-form-cancel" onClick={() => setNplModalOwner(null)}>
+              <button type="button" className="fund-form-cancel owners-modal-close-btn" onClick={() => setNplModalOwner(null)}>
                 Close
               </button>
             </div>
             <textarea className="auth-input auth-input-textarea owners-modal-text" readOnly value={nplText(nplModalOwner)} />
             <div className="fund-form-actions">
-              <button type="button" className="fund-form-submit" onClick={() => copyToClipboard(nplText(nplModalOwner), 'NPL guidance copied.')}>
-                Copy text
+              <button
+                type="button"
+                className="fund-form-submit"
+                onClick={async () => {
+                  await copyToClipboard(nplText(nplModalOwner), 'NPL guidance copied.');
+                  setModalCopied('Copied!');
+                }}
+              >
+                Copy guidance
               </button>
+              <button
+                type="button"
+                className="owners-action-btn"
+                onClick={() => window.open('https://www.ros.gov.uk', '_blank', 'noopener,noreferrer')}
+              >
+                Go to ros.gov.uk
+              </button>
+              {modalCopied && <span className="owners-copied-text">{modalCopied}</span>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {reminderModalOwner && (
+        <div className="owners-modal-backdrop" role="dialog" aria-modal="true">
+          <div className="owners-modal">
+            <div className="fund-section-head">
+              <div className="slabel">Friendly reminder</div>
+              <button type="button" className="fund-form-cancel owners-modal-close-btn" onClick={() => setReminderModalOwner(null)}>
+                Close
+              </button>
+            </div>
+            <textarea className="auth-input auth-input-textarea owners-modal-text" readOnly value={reminderTemplate(reminderModalOwner)} />
+            <div className="fund-form-actions">
+              <button
+                type="button"
+                className="fund-form-submit"
+                onClick={async () => {
+                  await copyToClipboard(reminderTemplate(reminderModalOwner), 'Reminder copied.');
+                  setModalCopied('Copied!');
+                }}
+              >
+                Copy message
+              </button>
+              {modalCopied && <span className="owners-copied-text">{modalCopied}</span>}
             </div>
           </div>
         </div>

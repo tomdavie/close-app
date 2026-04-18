@@ -812,6 +812,20 @@ button.owner-row {
   min-height: 220px;
 }
 
+.owners-modal-close-btn {
+  color: var(--cl-rust-dark);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.owners-copied-text {
+  align-self: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--cl-teal-dark);
+  margin-left: 6px;
+}
+
 .vote-card {
   background: #fff;
   border-radius: 16px;
@@ -1283,6 +1297,26 @@ button.owner-row {
   margin-top: 2px;
 }
 
+.fund-recalc-link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: 700;
+  color: #8b5a45;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.fund-perflat-line {
+  margin-top: 5px;
+  font-size: 12px;
+  color: #8f7868;
+  font-weight: 600;
+}
+
 .fbar-wrap {
   background: var(--cl-sand-dark);
   border-radius: 8px;
@@ -1341,6 +1375,158 @@ button.owner-row {
   padding: 14px 16px;
   border: 1px solid #e8dbc9;
   background: #fffaf2;
+}
+
+.fund-estimator-prompt {
+  margin-top: 10px;
+  padding: 14px 16px;
+  background: #fff8ef;
+  border: 1px solid #ead8c6;
+}
+
+.fund-review-prompt {
+  padding: 14px 16px;
+  background: #fff6ec;
+  border: 1px solid #e8d2bf;
+}
+
+.fund-review-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #5a382b;
+}
+
+.fund-review-sub {
+  margin-top: 5px;
+  font-size: 13px;
+  color: #806555;
+  line-height: 1.4;
+}
+
+.fund-review-actions {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.fund-estimator-prompt-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #5b3a2e;
+}
+
+.fund-estimator-prompt-sub {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #836957;
+  line-height: 1.35;
+}
+
+.fund-estimator-start-btn {
+  margin-top: 12px;
+}
+
+.fund-estimator-modal {
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.fund-estimator-step {
+  margin-top: 8px;
+}
+
+.fund-estimator-title {
+  font-size: 20px;
+  font-family: 'Playfair Display', serif;
+  color: #5a3a2e;
+  line-height: 1.25;
+}
+
+.fund-estimator-options {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fund-estimator-option {
+  width: 100%;
+  border: 1px solid #e6d3c1;
+  background: #fff;
+  border-radius: 12px;
+  padding: 11px 12px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.fund-estimator-option--selected {
+  border-color: #c06b49;
+  background: #fff3e8;
+}
+
+.fund-estimator-option-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: #5a3a2d;
+}
+
+.fund-estimator-option-sub {
+  font-size: 12px;
+  color: #8a6f5f;
+  margin-top: 2px;
+}
+
+.fund-estimator-range {
+  margin-top: 10px;
+  font-size: 22px;
+  font-family: 'Playfair Display', serif;
+  color: #53352a;
+}
+
+.fund-estimator-subline {
+  margin-top: 5px;
+  font-size: 13px;
+  color: #876f60;
+}
+
+.fund-estimator-slider-wrap {
+  margin-top: 14px;
+}
+
+.fund-estimator-slider {
+  width: 100%;
+  accent-color: #a5432d;
+}
+
+.fund-estimator-selected {
+  margin-top: 5px;
+  font-size: 20px;
+  font-family: 'Playfair Display', serif;
+  color: #5a3a2e;
+}
+
+.fund-estimator-save-btn {
+  margin-top: 12px;
+  width: 100%;
+}
+
+.fund-estimator-explain-toggle {
+  margin-top: 10px;
+}
+
+.fund-estimator-explain {
+  margin-top: 8px;
+  border: 1px solid #ecdccf;
+  background: #fffdf9;
+  border-radius: 10px;
+  padding: 9px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #7a6255;
 }
 
 .fund-add-form {

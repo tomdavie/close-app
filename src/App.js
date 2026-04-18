@@ -162,6 +162,7 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
 
   const loadUnreadCount = useCallback(async () => {
     if (!session?.user?.id) return;
+    console.log('[notifications] unread count query for user', session.user.id);
     const { count, error } = await supabase
       .from('notifications')
       .select('id', { count: 'exact', head: true })
@@ -170,8 +171,10 @@ function MainShell({ session, onLogout, buildingId, building, onBuildingUpdated 
       .eq('is_read', false);
     if (error) {
       if (error.code === '42P01') setUnreadCount(0);
+      console.log('[notifications] unread count query failed', error);
       return;
     }
+    console.log('[notifications] unread count result', { userId: session.user.id, unread: count ?? 0 });
     setUnreadCount(count ?? 0);
   }, [session, buildingId]);
 
